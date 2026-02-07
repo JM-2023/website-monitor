@@ -2,3 +2,8 @@ node_modules
 .DS_Store
 *.local
 .out
+.cache
+.chrome-profile
+logs
+outputs
+config/monitors.json

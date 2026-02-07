@@ -1,5 +1,5 @@
 import { range, fetchResource } from "./helpers.js";
-import type { TaskOptions } from "./index.js";
+import type { TaskOptions } from "./types.js";
 
 /*
 url: 要抓取的链接*
@@ -29,8 +29,8 @@ url, outputDir, extract 与 interval 是必填的, 不可省略
 window.selectTags("img")         返回页面中所有 <img> 元素
 window.selectFirst(".red")       返回页面中第一个匹配 .red 这个 CSS 选择器的元素
 window.selectAll(".red")         返回页面中所有匹配 .red 这个 CSS 选择器的元素
-array.filterContent(/^Hello/)  过滤出 array 数组中所有 textContent 匹配正则表达式 /^Hello/ 的元素
-array.removeAll()              从页面中移除数组中所有元素
+window.filterContent(array, /^Hello/)  过滤出 array 数组中所有 textContent 匹配正则表达式 /^Hello/ 的元素
+window.removeElements(array)          从页面中移除数组中所有元素
 */
 
 export const TASKS: TaskOptions[] = [
@@ -68,31 +68,35 @@ export const TASKS: TaskOptions[] = [
         outputDir: "Download",
         // prettier-ignore
         preprocess() {
-            window.selectTags("span").filterContent(/^已关注/).removeAll();
-            window.selectTags("a").filterContent(/^原文评论/).removeAll();
-            window.selectTags("span").filterContent(/^原文转发/).removeAll();
-            window.selectTags("span").filterContent(/^赞/).removeAll();
-            window.selectTags("span").filterContent(/^((今|昨)天 \d{2}:\d{2})|(\d+月+\d+日 \d{2}:\d{2})/).removeAll();
-            window.selectTags("span").filterContent(/^((今|昨)天 \d{2}:\d{2})|(\d+分钟前)/).removeAll();
-            window.selectTags("a").filterContent(/^私信/).removeAll();
-            window.selectTags("a").filterContent(/^资料/).removeAll();
-            window.selectTags("a").filterContent(/^操作/).removeAll();
-            window.selectTags("a").filterContent(/^加关注/).removeAll();
-            window.selectTags("a").filterContent(/^特别关注/).removeAll();
-            window.selectTags("a").filterContent(/^送Ta会员/).removeAll();
-            window.selectTags("a").filterContent(/^首页/).removeAll();
+            const removeByText = (tag: string, pattern: RegExp) => {
+                window.removeElements(window.filterContent(window.selectTags(tag), pattern));
+            };
+
+            removeByText("span", /^已关注/);
+            removeByText("a", /^原文评论/);
+            removeByText("span", /^原文转发/);
+            removeByText("span", /^赞/);
+            removeByText("span", /^((今|昨)天 \d{2}:\d{2})|(\d+月+\d+日 \d{2}:\d{2})/);
+            removeByText("span", /^((今|昨)天 \d{2}:\d{2})|(\d+分钟前)/);
+            removeByText("a", /^私信/);
+            removeByText("a", /^资料/);
+            removeByText("a", /^操作/);
+            removeByText("a", /^加关注/);
+            removeByText("a", /^特别关注/);
+            removeByText("a", /^送Ta会员/);
+            removeByText("a", /^首页/);
             window.selectFirst("div.b")?.remove();
             window.selectFirst("div.pm")?.remove();
             window.selectFirst("div.n")?.remove();
             window.selectFirst("div.c.tip")?.remove();
             window.selectFirst("div.cd")?.remove();
             window.selectFirst("div.pmst")?.remove();
-            window.selectAll("div.pms").removeAll();
-            window.selectAll("div.tc.tip2").removeAll();
+            window.removeElements(window.selectAll("div.pms"));
+            window.removeElements(window.selectAll("div.tc.tip2"));
             window.selectFirst("#pagelist > form > div")?.remove();
         },
         textToCompare() {
-            return document.body.textContent;
+            return document.body.textContent ?? "";
         },
         resourcesToCompare() {
             return window
@@ -107,17 +111,19 @@ export const TASKS: TaskOptions[] = [
             const url = id.replace(/^(https?):\/\/weibo\.cn\/mblog\/(pic)\/(\w+)/i, "$1://weibo.cn/mblog/picAll/$3");
             const html = await window.quickFetch(url).then((r) => r.text());
             const doc = new DOMParser().parseFromString(html, "text/html");
+            const links = Array.from(doc.querySelectorAll<HTMLAnchorElement>("a"))
+                .filter((anchor) => anchor.textContent === "原图")
+                .map((anchor) => anchor.href);
+
             return await Promise.all(
-                Array.prototype.filter
-                    .call(doc.getElementsByTagName("a"), (a) => a.textContent === "原图")
-                    .map((a) => a.href)
-                    .map(async (link) => {
-                        const { encodedBuf, url } = await window.fetchResource(link);
-                        return {
-                            filename: url.substring(url.lastIndexOf("/") + 1),
-                            encodedBuf,
-                        };
-                    })
+                links.map(async (link) => {
+                    const { encodedBuf, url: resolvedUrl } = await window.fetchResource(link);
+                    let filename: string | undefined;
+                    try {
+                        filename = new URL(resolvedUrl).pathname.split("/").pop() || undefined;
+                    } catch {}
+                    return { filename, encodedBuf };
+                })
             );
         },
         interval: range(7, 10),

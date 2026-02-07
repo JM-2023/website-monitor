@@ -1,5 +1,5 @@
 import levenshtein from "js-levenshtein";
-import type { ExtractedResource } from "./index.js";
+import type { ExtractedResource } from "./types.js";
 
 export function range(min: number, max: number): () => number {
     return () => Math.floor(Math.random() * (max - min + 1) + min);
@@ -12,6 +12,45 @@ export function calculateSimilarity(from: string, to: string): number {
     if (!from || !to) return 0;
     const distance = levenshtein(from, to);
     return 1 - distance / Math.max(from.length, to.length);
+}
+
+const WINDOWS_RESERVED_NAMES = new Set([
+    "con",
+    "prn",
+    "aux",
+    "nul",
+    "com1",
+    "com2",
+    "com3",
+    "com4",
+    "com5",
+    "com6",
+    "com7",
+    "com8",
+    "com9",
+    "lpt1",
+    "lpt2",
+    "lpt3",
+    "lpt4",
+    "lpt5",
+    "lpt6",
+    "lpt7",
+    "lpt8",
+    "lpt9",
+]);
+
+export function sanitizeFilename(rawName: string, fallback: string = "resource.bin"): string {
+    const baseName = rawName.split(/[\\/]/).pop() ?? "";
+    const cleaned = baseName
+        .replace(/[<>:"/\\|?*\u0000-\u001F]/g, "_")
+        .replace(/\s+/g, " ")
+        .trim()
+        .replace(/^\.+$/, "")
+        .slice(0, 255);
+
+    const safeName = cleaned || fallback;
+    const lowerSafeName = safeName.toLowerCase();
+    return WINDOWS_RESERVED_NAMES.has(lowerSafeName) ? `_${safeName}` : safeName;
 }
 
 type ToArray<T> = T extends ArrayLike<infer E> ? E[] : T extends Iterable<infer E> ? E[] : never;
@@ -30,11 +69,13 @@ declare global {
 
         quickFetch: (url: string) => Promise<Response>;
         fetchResource: (id: string) => Promise<ExtractedResource & { url: string }>;
+        removeElements: <E extends { remove(): void }>(elements: Iterable<E>) => void;
+        filterContent: <E extends { textContent?: string | null }>(elements: Iterable<E>, pattern: RegExp) => E[];
     }
 
     interface Array<T> {
         removeAll<E extends { remove(): void }>(this: Array<E>): void;
-        filterContent<E extends { textContent?: string }>(this: Array<E>, pattern: RegExp): Array<E>;
+        filterContent<E extends { textContent?: string | null }>(this: Array<E>, pattern: RegExp): Array<E>;
     }
 }
 
@@ -65,11 +106,45 @@ export const injectDOMHelpers = () => {
         return { encodedBuf, url: res.url };
     };
 
-    Array.prototype.removeAll = function removeAll() {
-        return this.forEach((e) => e.remove());
+    window.removeElements = function removeElements(elements) {
+        for (const element of elements) {
+            element.remove();
+        }
     };
 
-    Array.prototype.filterContent = function filterContent(pattern) {
-        return this.filter((e) => e.textContent && pattern.test(e.textContent));
+    window.filterContent = function filterContent(elements, pattern) {
+        return Array.from(elements).filter((element) => {
+            const text = element.textContent;
+            return typeof text === "string" && pattern.test(text);
+        });
     };
+
+    const arrayProto = Array.prototype as {
+        removeAll?: () => void;
+        filterContent?: (pattern: RegExp) => unknown[];
+    };
+
+    // Backward compatibility for legacy TASKS scripts that use chained array helpers.
+    if (typeof arrayProto.removeAll !== "function") {
+        Object.defineProperty(Array.prototype, "removeAll", {
+            configurable: true,
+            writable: true,
+            value: function removeAll(this: Array<{ remove(): void }>) {
+                window.removeElements(this);
+            },
+        });
+    }
+
+    if (typeof arrayProto.filterContent !== "function") {
+        Object.defineProperty(Array.prototype, "filterContent", {
+            configurable: true,
+            writable: true,
+            value: function filterContent<E extends { textContent?: string | null }>(
+                this: Array<E>,
+                pattern: RegExp
+            ): E[] {
+                return window.filterContent(this, pattern);
+            },
+        });
+    }
 };

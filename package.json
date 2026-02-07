@@ -5,7 +5,13 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "tsc && node .out/index.js"
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "start": "npm run build && node .out/index.js",
+    "dev": "node scripts/dev.mjs --mode=launch",
+    "dev:attach": "node scripts/dev.mjs --mode=attach --browser-url=http://127.0.0.1:9222",
+    "clean": "node scripts/clean.mjs",
+    "test": "npm run build && node --test helpers.test.mjs tests/*.test.mjs"
   },
   "license": "ISC",
   "devDependencies": {

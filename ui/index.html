@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Website Monitor Console</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="background-glow glow-a"></div>
+    <div class="background-glow glow-b"></div>
+
+    <main class="app-shell">
+      <header class="hero panel">
+        <div class="hero-copy">
+          <p class="eyebrow">Local Control Panel</p>
+          <h1>Website Monitor Console</h1>
+          <p class="muted">Create monitors, adjust schedules, and track detected changes in one place.</p>
+        </div>
+        <div class="hero-actions">
+          <button id="startBtn" class="btn btn-primary">Start Monitoring</button>
+          <button id="stopBtn" class="btn btn-danger">Stop</button>
+        </div>
+      </header>
+
+      <section class="status-grid">
+        <article class="panel status-card">
+          <h2>Engine</h2>
+          <div id="engineStatus" class="status-value">Loading...</div>
+        </article>
+        <article class="panel status-card">
+          <h2>Mode</h2>
+          <div id="modeStatus" class="status-value">-</div>
+        </article>
+        <article class="panel status-card">
+          <h2>Control URL</h2>
+          <div id="controlUrl" class="status-value mono">-</div>
+        </article>
+        <article class="panel status-card">
+          <h2>Task Counts</h2>
+          <div id="taskCounts" class="status-value">-</div>
+        </article>
+      </section>
+
+      <section class="runtime-grid">
+        <article class="panel runtime-panel">
+          <div class="section-title">
+            <div>
+              <h2>Browser Runtime</h2>
+              <p class="muted">Tune foreground impact and connection behavior.</p>
+            </div>
+          </div>
+          <div class="runtime-controls">
+            <label class="checkbox-row">
+              <input id="headlessToggle" type="checkbox" />
+              Headless (No Window)
+            </label>
+            <label class="checkbox-row">
+              <input id="includeLegacyToggle" type="checkbox" />
+              Include Legacy Tasks (TASKS_FILE)
+            </label>
+            <button id="applyRuntimeBtn" class="btn btn-secondary" type="button">Apply Runtime</button>
+          </div>
+          <p id="runtimeHint" class="inline-hint">Loading runtime settings...</p>
+          <p id="focusRiskHint" class="inline-hint">Focus risk: -</p>
+        </article>
+      </section>
+
+      <section class="workspace-grid">
+        <article class="panel task-panel">
+          <div class="section-title">
+            <div>
+              <h2>Monitor Tasks</h2>
+              <p class="muted">Editable tasks from `config/monitors.json`</p>
+            </div>
+            <span id="uiTaskCount" class="count-pill">0 tasks</span>
+          </div>
+
+          <div class="toolbar">
+            <label class="toolbar-field">
+              Search
+              <input id="taskSearchInput" placeholder="Search by name or URL" />
+            </label>
+            <label class="toolbar-field">
+              Filter
+              <select id="taskFilterSelect">
+                <option value="all">All tasks</option>
+                <option value="enabled">Enabled only</option>
+                <option value="disabled">Disabled only</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="table-wrap">
+            <table class="table" id="uiTaskTable">
+              <thead>
+                <tr>
+                  <th>Enabled</th>
+                  <th>Name</th>
+                  <th>URL</th>
+                  <th>Interval</th>
+                  <th>Wait</th>
+                  <th>Next Check</th>
+                  <th>Output</th>
+                  <th>Last Check</th>
+                  <th>Last Change</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </article>
+
+        <article class="panel form-panel">
+          <div class="section-title">
+            <div>
+              <h2 id="formTitle">Create Task</h2>
+              <p class="muted">Add a URL and save. Changes apply immediately to next runs.</p>
+            </div>
+          </div>
+          <form id="taskForm" class="form">
+            <label>
+              Name
+              <input id="taskName" name="name" required placeholder="News Feed" />
+            </label>
+            <label>
+              URL
+              <input id="taskUrl" name="url" required placeholder="https://example.com/page" />
+            </label>
+            <p id="urlHint" class="inline-hint">URL must start with http:// or https://</p>
+            <label>
+              Interval (seconds)
+              <input id="taskInterval" name="intervalSec" type="number" min="1" step="1" value="60" required />
+            </label>
+            <label>
+              Wait Load
+              <select id="taskWaitLoad" name="waitLoad">
+                <option value="load">load (balanced, default)</option>
+                <option value="domcontentloaded">domcontentloaded (fastest, may miss dynamic content)</option>
+                <option value="networkidle2">networkidle2 (wait for most requests to settle)</option>
+                <option value="networkidle0">networkidle0 (strictest, can timeout on busy pages)</option>
+              </select>
+            </label>
+            <p class="inline-hint">Use `waitSelector` for dynamic pages when `waitLoad` alone is not enough.</p>
+            <label>
+              Wait Selector (optional)
+              <input id="taskWaitSelector" name="waitSelector" placeholder="#main-content" />
+            </label>
+            <label>
+              Extra Wait (sec)
+              <input id="taskWaitTimeout" name="waitTimeoutSec" type="number" min="0" step="0.5" value="0" />
+            </label>
+            <label>
+              Output Directory
+              <input id="taskOutputDir" name="outputDir" placeholder="outputs/news-feed" />
+            </label>
+            <label class="checkbox-row">
+              <input id="taskEnabled" name="enabled" type="checkbox" checked />
+              Enabled
+            </label>
+            <div class="actions">
+              <button type="submit" class="btn btn-primary" id="submitTaskBtn">Create Task</button>
+              <button type="button" class="btn btn-secondary" id="cancelEditBtn" hidden>Cancel Edit</button>
+            </div>
+          </form>
+        </article>
+      </section>
+
+      <section class="workspace-grid bottom-grid">
+        <article class="panel changes-panel">
+          <div class="section-title">
+            <div>
+              <h2>Recent Changes</h2>
+              <p class="muted">Latest files saved by the monitor</p>
+            </div>
+          </div>
+          <ul id="changeList" class="change-list"></ul>
+        </article>
+
+        <article class="panel legacy-panel">
+          <div class="section-title">
+            <div>
+              <h2>Legacy Tasks</h2>
+              <p class="muted">Read-only tasks loaded from `TASKS_FILE`</p>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table class="table" id="legacyTable">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>URL</th>
+                  <th>Interval</th>
+                  <th>Next Check</th>
+                  <th>Output</th>
+                  <th>Last Check</th>
+                  <th>Last Error</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </article>
+      </section>
+
+      <aside id="toast" class="toast" hidden></aside>
+    </main>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

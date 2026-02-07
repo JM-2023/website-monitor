@@ -1,41 +1,91 @@
 # website-monitor
- 
-This app is for my personal use.
 
-url: the link to be crawled*
+Local website monitor with a built-in web console.
 
-outputDir: the folder to save to*
+## Quick Start (macOS)
 
+1. Double-click `run.command`.
+2. The script installs local dependencies (`npm ci`) if needed.
+3. Your browser opens the local console (default `http://127.0.0.1:3210`).
+4. Add tasks and click **Start Monitoring**.
 
+No global dependency installation is required.  
+All dependencies are installed in local `node_modules`.
 
-waitLoad: which criterion to use to wait for the page to finish loading
+## Launch Modes
 
-    - "domcontentloaded" means wait for the entire HTML file to be parsed, but external resources such as images are not yet loaded (the most aggressive option, can't crawl any JS content)
+- `run.command`: default launch mode (managed Chrome, no required `9222`).
+- `run-attach.command`: attach mode (connects to existing Chrome at `http://127.0.0.1:9222`).
 
-    - "loaded" means to wait for all the resources in the HTML file (images, etc.) to be loaded, but this does not necessarily include the JS dynamically loaded content. This is the default value
+## Local Residue Policy
 
-    - "networkidle2" means wait for 500ms without more than two network requests. All network activity is included
+- Local npm cache: `.cache/npm`
+- Local Chrome profile (launch mode): `.chrome-profile`
+- Build output: `.out`
+- Dependencies: `node_modules`
 
-    - "networkidle0" means wait 500ms for no new network requests (the most conservative option, not recommended)
+Cleanup command (keeps monitoring outputs):
 
-waitTimeout: wait for a fixed amount of time in seconds on top of waitLoad
+```bash
+npm run clean
+```
 
-waitSelector: waits for the appearance of an element in addition to the previous two wait options, in the form of a CSS selector. For example, "#title" means wait until an element with the id title appears before continuing
+Or double-click `clean.command`.
 
-timeout: the timeout for each of the above, in seconds, default 15
+To stop leftover monitor processes quickly, double-click `stop.command`.
 
+## Scripts
 
+```bash
+npm run dev          # launch mode control panel
+npm run dev:attach   # attach mode control panel
+npm run start        # CLI-compatible monitor runner (no web console)
+npm run build
+npm run test
+npm run clean
+```
 
-preprocess(): This function is executed on the page after all the waits are over. It can be used to remove elements that are not needed
+## Control API (localhost only)
 
-textToCompare(): Get the content used to compare page changes. This function must return a string. It is only used for comparison, it does not save
+Server binds to `127.0.0.1` only.
 
-resourcesToCompare(): Gets the content used to compare the page's resource changes. Returns an array of strings, and if it contains an element that does not match the previous one, the resources corresponding to that element will be saved
+- `GET /api/state`
+- `GET /api/tasks`
+- `POST /api/tasks`
+- `PUT /api/tasks/:id`
+- `DELETE /api/tasks/:id`
+- `POST /api/engine/start`
+- `POST /api/engine/stop`
+- `GET /api/changes?limit=N`
 
-extract(): Gets the content of the page. This function must return a string
+## Configuration File
 
-extractResource(id): Download the specified resource. Pass in a string from resourcesToCompare(). Specify fetchResource to download the URL directly.
+File: `config/monitors.json`
 
+```json
+{
+  "version": 1,
+  "ui": { "port": 3210 },
+  "runtime": {
+    "mode": "launch",
+    "browserUrl": "http://127.0.0.1:9222",
+    "includeLegacyTasks": false
+  },
+  "tasks": []
+}
+```
 
+## Legacy Task Compatibility
 
-interval: interval time. Either specify a number of seconds, such as 5, or specify a random range(5, 10)
+- UI tasks are stored in `config/monitors.json`.
+- Legacy advanced tasks can still be loaded from `TASKS_FILE` (default `.out/tasks.js`).
+- Legacy tasks are read-only in the web console.
+
+## Environment Variables
+
+- `WM_MODE=launch|attach`
+- `WM_BROWSER_URL=http://127.0.0.1:9222`
+- `WM_UI_PORT=3210`
+- `WM_TASKS_FILE=/absolute/path/to/tasks.js`
+- `WM_INCLUDE_LEGACY_TASKS=true|false`
+- `WM_CHROME_EXECUTABLE=/Applications/Google Chrome.app/Contents/MacOS/Google Chrome`

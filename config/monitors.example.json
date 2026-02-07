@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "ui": {
+    "port": 3210
+  },
+  "runtime": {
+    "mode": "launch",
+    "browserUrl": "http://127.0.0.1:9222",
+    "includeLegacyTasks": false,
+    "launchHeadless": true
+  },
+  "tasks": []
+}
