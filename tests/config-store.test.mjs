@@ -17,6 +17,8 @@ test("ConfigStore creates default config and persists task CRUD", async () => {
     assert.equal(loaded.ui.port, 3210);
     assert.equal(loaded.runtime.includeLegacyTasks, false);
     assert.equal(loaded.runtime.launchHeadless, true);
+    assert.equal(loaded.runtime.userAgent, undefined);
+    assert.equal(loaded.runtime.acceptLanguage, undefined);
 
     const created = await store.addTask({
         name: "Example",
@@ -48,9 +50,13 @@ test("ConfigStore creates default config and persists task CRUD", async () => {
     const runtime = await store.updateRuntime({
         launchHeadless: false,
         includeLegacyTasks: false,
+        userAgent: "Mozilla/5.0 (Test UA)",
+        acceptLanguage: "en-US,en;q=0.9",
     });
     assert.equal(runtime.launchHeadless, false);
     assert.equal(runtime.includeLegacyTasks, false);
+    assert.equal(runtime.userAgent, "Mozilla/5.0 (Test UA)");
+    assert.equal(runtime.acceptLanguage, "en-US,en;q=0.9");
 
     const reloadedStore = new ConfigStore(configPath);
     const reloaded = await reloadedStore.load();
@@ -59,6 +65,20 @@ test("ConfigStore creates default config and persists task CRUD", async () => {
     assert.equal(reloaded.tasks[0].waitLoad, "domcontentloaded");
     assert.equal(reloaded.runtime.launchHeadless, false);
     assert.equal(reloaded.runtime.includeLegacyTasks, false);
+    assert.equal(reloaded.runtime.userAgent, "Mozilla/5.0 (Test UA)");
+    assert.equal(reloaded.runtime.acceptLanguage, "en-US,en;q=0.9");
+
+    const cleared = await reloadedStore.updateRuntime({
+        userAgent: "",
+        acceptLanguage: "",
+    });
+    assert.equal(cleared.userAgent, undefined);
+    assert.equal(cleared.acceptLanguage, undefined);
+
+    const afterClearStore = new ConfigStore(configPath);
+    const afterClear = await afterClearStore.load();
+    assert.equal(afterClear.runtime.userAgent, undefined);
+    assert.equal(afterClear.runtime.acceptLanguage, undefined);
 
     await reloadedStore.deleteTask(created.id);
     const afterDelete = reloadedStore.get();

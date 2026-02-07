@@ -71,6 +71,7 @@
                   <th>Output</th>
                   <th>Last Check</th>
                   <th>Last Change</th>
+                  <th>Last Error</th>
                   <th>Actions</th>
                 </tr>
               </thead>
@@ -112,6 +113,14 @@
               <label class="checkbox-row">
                 <input id="includeLegacyToggle" type="checkbox" />
                 Include Legacy Tasks
+              </label>
+              <label>
+                User-Agent (optional)
+                <input id="userAgentInput" placeholder="Auto (headless: strip HeadlessChrome)" />
+              </label>
+              <label>
+                Accept-Language (optional)
+                <input id="acceptLanguageInput" placeholder="Auto (Chrome default)" />
               </label>
               <button id="applyRuntimeBtn" class="btn btn-secondary" type="button">Apply Runtime</button>
             </div>

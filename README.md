@@ -54,6 +54,8 @@ Server binds to `127.0.0.1` only.
 - `POST /api/tasks`
 - `PUT /api/tasks/:id`
 - `DELETE /api/tasks/:id`
+- `POST /api/tasks/:id/unblock`
+- `PUT /api/runtime`
 - `POST /api/engine/start`
 - `POST /api/engine/stop`
 - `GET /api/changes?limit=N`
@@ -89,3 +91,12 @@ File: `config/monitors.json`
 - `WM_TASKS_FILE=/absolute/path/to/tasks.js`
 - `WM_INCLUDE_LEGACY_TASKS=true|false`
 - `WM_CHROME_EXECUTABLE=/Applications/Google Chrome.app/Contents/MacOS/Google Chrome`
+- `WM_USER_AGENT=...` (optional)
+- `WM_ACCEPT_LANGUAGE=...` (optional, e.g. `en-US,en;q=0.9`)
+
+Notes:
+
+- User-Agent / Accept-Language are compatibility knobs and do not guarantee fewer bot challenges.
+- Leaving `userAgent` unset uses auto mode; in `launch` + headless we normalize the UA by replacing `HeadlessChrome` with `Chrome`.
+- Leaving `acceptLanguage` unset uses Chrome's default `Accept-Language` header.
+- If a site shows a Cloudflare/CAPTCHA challenge, the monitor will pause that task; use attach mode with your regular Chrome session to complete verification once, then unblock the task.

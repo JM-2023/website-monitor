@@ -18,6 +18,11 @@ function parseBool(value: string | undefined, fallback: boolean): boolean {
     return fallback;
 }
 
+function normalizeOptionalString(input: string | undefined): string | undefined {
+    const trimmed = input?.trim();
+    return trimmed ? trimmed : undefined;
+}
+
 try {
     sourceMapSupport.install();
 } catch (error) {
@@ -33,6 +38,8 @@ try {
     const browserUrl = process.env.WM_BROWSER_URL || config.runtime.browserUrl;
     const includeLegacyTasks = parseBool(process.env.WM_INCLUDE_LEGACY_TASKS, config.runtime.includeLegacyTasks);
     const launchHeadless = parseBool(process.env.WM_LAUNCH_HEADLESS, config.runtime.launchHeadless);
+    const userAgent = normalizeOptionalString(process.env.WM_USER_AGENT) ?? config.runtime.userAgent;
+    const acceptLanguage = normalizeOptionalString(process.env.WM_ACCEPT_LANGUAGE) ?? config.runtime.acceptLanguage;
 
     const engine = new MonitorEngine({
         mode,
@@ -41,6 +48,8 @@ try {
         launchHeadless,
         tasksFile: process.env.WM_TASKS_FILE,
         chromeExecutable: process.env.WM_CHROME_EXECUTABLE,
+        userAgent,
+        acceptLanguage,
     });
 
     await engine.refreshLegacyTasks();

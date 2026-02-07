@@ -24,6 +24,8 @@ const uiTaskCount = document.querySelector("#uiTaskCount");
 const urlHint = document.querySelector("#urlHint");
 const headlessToggle = document.querySelector("#headlessToggle");
 const includeLegacyToggle = document.querySelector("#includeLegacyToggle");
+const userAgentInput = document.querySelector("#userAgentInput");
+const acceptLanguageInput = document.querySelector("#acceptLanguageInput");
 const applyRuntimeBtn = document.querySelector("#applyRuntimeBtn");
 const runtimeHint = document.querySelector("#runtimeHint");
 const focusRiskHint = document.querySelector("#focusRiskHint");
@@ -76,9 +78,12 @@ function formatDuration(totalSeconds) {
     return `${hours}h ${remainMinutes}m`;
 }
 
-function formatNextCheckLabel(nextCheckAt, running, enabled) {
+function formatNextCheckLabel(nextCheckAt, running, enabled, blocked) {
     if (!enabled) {
         return "Disabled";
+    }
+    if (blocked) {
+        return "Blocked";
     }
     if (running) {
         return "Checking now...";
@@ -102,7 +107,8 @@ function updateCountdownLabels() {
         const nextCheckAt = element.dataset.nextCheck || "";
         const running = element.dataset.running === "1";
         const enabled = element.dataset.enabled !== "0";
-        element.textContent = formatNextCheckLabel(nextCheckAt, running, enabled);
+        const blocked = element.dataset.blocked === "1";
+        element.textContent = formatNextCheckLabel(nextCheckAt, running, enabled, blocked);
     });
 }
 
@@ -150,6 +156,8 @@ function getRuntimeFormValues() {
     return {
         launchHeadless: headlessToggle.checked,
         includeLegacyTasks: includeLegacyToggle.checked,
+        userAgent: userAgentInput.value.trim(),
+        acceptLanguage: acceptLanguageInput.value.trim(),
     };
 }
 
@@ -163,7 +171,9 @@ function refreshRuntimeDirty() {
     const launchChanged =
         state.engine.mode !== "attach" && Boolean(state.engine.launchHeadless) !== Boolean(form.launchHeadless);
     const legacyChanged = Boolean(state.engine.includeLegacyTasks) !== Boolean(form.includeLegacyTasks);
-    state.runtimeDirty = launchChanged || legacyChanged;
+    const userAgentChanged = String(state.engine.userAgent ?? "").trim() !== form.userAgent;
+    const acceptLanguageChanged = String(state.engine.acceptLanguage ?? "").trim() !== form.acceptLanguage;
+    state.runtimeDirty = launchChanged || legacyChanged || userAgentChanged || acceptLanguageChanged;
 }
 
 function formatWaitSummary(task) {
@@ -229,6 +239,8 @@ function renderEngine() {
         focusRiskHint.textContent = "Focus risk: -";
         headlessToggle.disabled = true;
         includeLegacyToggle.disabled = true;
+        userAgentInput.disabled = true;
+        acceptLanguageInput.disabled = true;
         applyRuntimeBtn.disabled = true;
         return;
     }
@@ -253,10 +265,14 @@ function renderEngine() {
     if (!state.runtimeDirty) {
         headlessToggle.checked = Boolean(state.engine.launchHeadless);
         includeLegacyToggle.checked = Boolean(state.engine.includeLegacyTasks);
+        userAgentInput.value = String(state.engine.userAgent ?? "");
+        acceptLanguageInput.value = String(state.engine.acceptLanguage ?? "");
     }
 
     headlessToggle.disabled = state.engine.mode === "attach";
     includeLegacyToggle.disabled = false;
+    userAgentInput.disabled = false;
+    acceptLanguageInput.disabled = false;
 
     refreshRuntimeDirty();
     applyRuntimeBtn.disabled = !state.runtimeDirty;
@@ -291,7 +307,7 @@ function renderUiTasks() {
 
     if (tasks.length === 0) {
         const emptyRow = document.createElement("tr");
-        emptyRow.innerHTML = '<td colspan="10">No tasks match the current search/filter.</td>';
+        emptyRow.innerHTML = '<td colspan="11">No tasks match the current search/filter.</td>';
         tbody.appendChild(emptyRow);
         return;
     }
@@ -299,17 +315,22 @@ function renderUiTasks() {
     for (const task of tasks) {
         const row = document.createElement("tr");
         const status = getStatus(`ui-${task.id}`);
+        const unblockButton = status?.blocked
+            ? `<button class="btn btn-mini" data-action="unblock" data-id="${escapeHtml(task.id)}">Unblock</button>`
+            : "";
         row.innerHTML = `
       <td><input type="checkbox" data-action="toggle" data-id="${escapeHtml(task.id)}" ${task.enabled ? "checked" : ""}></td>
       <td>${escapeHtml(task.name)}</td>
       <td><a href="${escapeHtml(task.url)}" target="_blank" rel="noreferrer">${escapeHtml(task.url)}</a></td>
       <td>${task.intervalSec}s</td>
       <td>${escapeHtml(formatWaitSummary(task))}</td>
-      <td><span class="next-check" data-next-check="${escapeHtml(status?.nextCheckAt ?? "")}" data-running="${status?.running ? "1" : "0"}" data-enabled="${task.enabled ? "1" : "0"}">-</span></td>
+      <td><span class="next-check" data-next-check="${escapeHtml(status?.nextCheckAt ?? "")}" data-running="${status?.running ? "1" : "0"}" data-enabled="${task.enabled ? "1" : "0"}" data-blocked="${status?.blocked ? "1" : "0"}">-</span></td>
       <td>${escapeHtml(task.outputDir)}</td>
       <td>${fmtDate(status?.lastCheckAt ?? null)}</td>
       <td>${fmtDate(status?.lastChangeAt ?? null)}</td>
+      <td>${status?.lastError ? escapeHtml(status.lastError) : "-"}</td>
       <td>
+        ${unblockButton}
         <button class="btn btn-mini" data-action="edit" data-id="${escapeHtml(task.id)}">Edit</button>
         <button class="btn btn-mini" data-action="delete" data-id="${escapeHtml(task.id)}">Delete</button>
       </td>
@@ -331,14 +352,14 @@ function renderLegacyTasks() {
     for (const item of state.legacyTasks) {
         const row = document.createElement("tr");
         row.innerHTML = `
-      <td>${escapeHtml(item.name)}</td>
-      <td><a href="${escapeHtml(item.url)}" target="_blank" rel="noreferrer">${escapeHtml(item.url)}</a></td>
-      <td>${item.intervalSec}s</td>
-      <td><span class="next-check" data-next-check="${escapeHtml(item.nextCheckAt ?? "")}" data-running="${item.running ? "1" : "0"}" data-enabled="${item.enabled ? "1" : "0"}">-</span></td>
-      <td>${escapeHtml(item.outputDir)}</td>
-      <td>${fmtDate(item.lastCheckAt)}</td>
-      <td>${item.lastError ? escapeHtml(item.lastError) : "-"}</td>
-    `;
+	      <td>${escapeHtml(item.name)}</td>
+	      <td><a href="${escapeHtml(item.url)}" target="_blank" rel="noreferrer">${escapeHtml(item.url)}</a></td>
+	      <td>${item.intervalSec}s</td>
+	      <td><span class="next-check" data-next-check="${escapeHtml(item.nextCheckAt ?? "")}" data-running="${item.running ? "1" : "0"}" data-enabled="${item.enabled ? "1" : "0"}" data-blocked="${item.blocked ? "1" : "0"}">-</span></td>
+	      <td>${escapeHtml(item.outputDir)}</td>
+	      <td>${fmtDate(item.lastCheckAt)}</td>
+	      <td>${item.lastError ? escapeHtml(item.lastError) : "-"}</td>
+	    `;
         tbody.appendChild(row);
     }
 
@@ -483,11 +504,15 @@ async function applyRuntimeChanges() {
 
     const nextHeadless = headlessToggle.checked;
     const nextIncludeLegacy = includeLegacyToggle.checked;
+    const nextUserAgent = userAgentInput.value.trim();
+    const nextAcceptLanguage = acceptLanguageInput.value.trim();
     const launchChanged =
         state.engine.mode !== "attach" && Boolean(state.engine.launchHeadless) !== Boolean(nextHeadless);
     const legacyChanged = Boolean(state.engine.includeLegacyTasks) !== Boolean(nextIncludeLegacy);
+    const userAgentChanged = String(state.engine.userAgent ?? "").trim() !== nextUserAgent;
+    const acceptLanguageChanged = String(state.engine.acceptLanguage ?? "").trim() !== nextAcceptLanguage;
 
-    if (!launchChanged && !legacyChanged) {
+    if (!launchChanged && !legacyChanged && !userAgentChanged && !acceptLanguageChanged) {
         state.runtimeDirty = false;
         renderEngine();
         showToast("Runtime unchanged.");
@@ -506,6 +531,12 @@ async function applyRuntimeChanges() {
     };
     if (state.engine.mode !== "attach") {
         payload.launchHeadless = nextHeadless;
+    }
+    if (userAgentChanged) {
+        payload.userAgent = nextUserAgent;
+    }
+    if (acceptLanguageChanged) {
+        payload.acceptLanguage = nextAcceptLanguage;
     }
 
     const result = await request("/api/runtime", {
@@ -549,6 +580,12 @@ async function handleTableAction(event) {
                 resetForm();
             }
             showToast("Task deleted");
+            await refresh();
+            return;
+        }
+        if (action === "unblock") {
+            await request(`/api/tasks/${encodeURIComponent(id)}/unblock`, { method: "POST" });
+            showToast("Task unblocked");
             await refresh();
             return;
         }
@@ -670,6 +707,16 @@ headlessToggle.addEventListener("change", () => {
 });
 
 includeLegacyToggle.addEventListener("change", () => {
+    refreshRuntimeDirty();
+    renderEngine();
+});
+
+userAgentInput.addEventListener("input", () => {
+    refreshRuntimeDirty();
+    renderEngine();
+});
+
+acceptLanguageInput.addEventListener("input", () => {
     refreshRuntimeDirty();
     renderEngine();
 });

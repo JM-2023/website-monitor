@@ -21,6 +21,11 @@ function closeServer(server) {
 }
 
 test("Control server falls back from occupied port and validates task URL", async (t) => {
+    const originalUserAgent = process.env.WM_USER_AGENT;
+    const originalAcceptLanguage = process.env.WM_ACCEPT_LANGUAGE;
+    delete process.env.WM_USER_AGENT;
+    delete process.env.WM_ACCEPT_LANGUAGE;
+
     const host = "127.0.0.1";
     const blocker = http.createServer((req, res) => {
         res.statusCode = 200;
@@ -80,6 +85,8 @@ test("Control server falls back from occupied port and validates task URL", asyn
         assert.equal(stateBody.running, false);
         assert.equal(stateBody.launchHeadless, true);
         assert.equal(stateBody.focusRisk, "low");
+        assert.equal(stateBody.userAgent, undefined);
+        assert.equal(stateBody.acceptLanguage, undefined);
 
         const badResponse = await fetch(`${handle.url}/api/tasks`, {
             method: "POST",
@@ -147,27 +154,53 @@ test("Control server falls back from occupied port and validates task URL", asyn
         assert.equal(tasksBody.uiTasks[0].waitSelector, "#app");
         assert.equal(tasksBody.uiTasks[0].waitTimeoutSec, 1.2);
 
+        const unblockResponse = await fetch(`${handle.url}/api/tasks/${encodeURIComponent(tasksBody.uiTasks[0].id)}/unblock`, {
+            method: "POST",
+        });
+        assert.equal(unblockResponse.ok, true);
+        const unblockBody = await unblockResponse.json();
+        assert.equal(unblockBody.ok, true);
+
         const runtimeResponse = await fetch(`${handle.url}/api/runtime`, {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
                 launchHeadless: false,
+                userAgent: "Mozilla/5.0 (Test UA)",
+                acceptLanguage: "en-US,en;q=0.9",
             }),
         });
         assert.equal(runtimeResponse.status, 200);
         const runtimeBody = await runtimeResponse.json();
         assert.equal(runtimeBody.runtime.launchHeadless, false);
+        assert.equal(runtimeBody.runtime.userAgent, "Mozilla/5.0 (Test UA)");
+        assert.equal(runtimeBody.runtime.acceptLanguage, "en-US,en;q=0.9");
         assert.equal(runtimeBody.state.launchHeadless, false);
+        assert.equal(runtimeBody.state.userAgent, "Mozilla/5.0 (Test UA)");
+        assert.equal(runtimeBody.state.acceptLanguage, "en-US,en;q=0.9");
         assert.equal(runtimeBody.state.focusRisk, "medium");
 
         const stateAfterResponse = await fetch(`${handle.url}/api/state`);
         const stateAfterBody = await stateAfterResponse.json();
         assert.equal(stateAfterBody.launchHeadless, false);
         assert.equal(stateAfterBody.focusRisk, "medium");
+        assert.equal(stateAfterBody.userAgent, "Mozilla/5.0 (Test UA)");
+        assert.equal(stateAfterBody.acceptLanguage, "en-US,en;q=0.9");
     } finally {
         if (handle) {
             await handle.close();
         }
         await closeServer(blocker);
+
+        if (originalUserAgent === undefined) {
+            delete process.env.WM_USER_AGENT;
+        } else {
+            process.env.WM_USER_AGENT = originalUserAgent;
+        }
+        if (originalAcceptLanguage === undefined) {
+            delete process.env.WM_ACCEPT_LANGUAGE;
+        } else {
+            process.env.WM_ACCEPT_LANGUAGE = originalAcceptLanguage;
+        }
     }
 });

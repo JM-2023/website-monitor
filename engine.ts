@@ -33,6 +33,9 @@ interface RuntimeTask {
     lastText: string;
     lastRenderedHtml: string;
     lastResources: string[];
+    blocked: boolean;
+    blockedReason: string | null;
+    blockedAt: string | null;
 }
 
 interface EngineSnapshot {
@@ -42,6 +45,8 @@ interface EngineSnapshot {
     launchHeadless: boolean;
     browserUrl: string;
     includeLegacyTasks: boolean;
+    userAgent?: string;
+    acceptLanguage?: string;
     uiTaskCount: number;
     legacyTaskCount: number;
     taskCount: number;
@@ -236,6 +241,8 @@ export class MonitorEngine {
             launchHeadless: this.runtimeOptions.launchHeadless,
             browserUrl: this.runtimeOptions.browserUrl,
             includeLegacyTasks: this.runtimeOptions.includeLegacyTasks,
+            userAgent: this.runtimeOptions.userAgent,
+            acceptLanguage: this.runtimeOptions.acceptLanguage,
             uiTaskCount: this.uiTasks.length,
             legacyTaskCount: this.runtimeOptions.includeLegacyTasks ? this.legacyOptions.length : 0,
             taskCount: this.tasks.size,
@@ -248,12 +255,16 @@ export class MonitorEngine {
         browserUrl: string;
         includeLegacyTasks: boolean;
         launchHeadless: boolean;
+        userAgent?: string;
+        acceptLanguage?: string;
     }): Promise<void> {
         const unchanged =
             this.runtimeOptions.mode === nextRuntime.mode &&
             this.runtimeOptions.browserUrl === nextRuntime.browserUrl &&
             this.runtimeOptions.includeLegacyTasks === nextRuntime.includeLegacyTasks &&
-            this.runtimeOptions.launchHeadless === nextRuntime.launchHeadless;
+            this.runtimeOptions.launchHeadless === nextRuntime.launchHeadless &&
+            this.runtimeOptions.userAgent === nextRuntime.userAgent &&
+            this.runtimeOptions.acceptLanguage === nextRuntime.acceptLanguage;
         if (unchanged) {
             return;
         }
@@ -269,6 +280,8 @@ export class MonitorEngine {
             browserUrl: nextRuntime.browserUrl,
             includeLegacyTasks: nextRuntime.includeLegacyTasks,
             launchHeadless: nextRuntime.launchHeadless,
+            userAgent: nextRuntime.userAgent,
+            acceptLanguage: nextRuntime.acceptLanguage,
         };
 
         await this.refreshLegacyTasks();
@@ -414,6 +427,9 @@ export class MonitorEngine {
             lastText: "",
             lastRenderedHtml: "",
             lastResources: [],
+            blocked: false,
+            blockedReason: null,
+            blockedAt: null,
         };
     }
 
@@ -435,6 +451,9 @@ export class MonitorEngine {
                 descriptor.lastRenderedHtml = previous.lastRenderedHtml;
                 descriptor.lastResources = previous.lastResources;
                 descriptor.active = previous.active;
+                descriptor.blocked = previous.blocked;
+                descriptor.blockedReason = previous.blockedReason;
+                descriptor.blockedAt = previous.blockedAt;
             }
             nextTasks.set(id, descriptor);
         }
@@ -455,6 +474,9 @@ export class MonitorEngine {
                     descriptor.lastRenderedHtml = previous.lastRenderedHtml;
                     descriptor.lastResources = previous.lastResources;
                     descriptor.active = previous.active;
+                    descriptor.blocked = previous.blocked;
+                    descriptor.blockedReason = previous.blockedReason;
+                    descriptor.blockedAt = previous.blockedAt;
                 }
                 nextTasks.set(id, descriptor);
             }
@@ -511,7 +533,14 @@ export class MonitorEngine {
                 lastChangeAt: current?.lastChangeAt ?? null,
                 lastError: current?.lastError ?? null,
                 lastSavedFile: current?.lastSavedFile ?? null,
+                blocked: task.blocked,
+                blockedReason: task.blockedReason,
+                blockedAt: task.blockedAt,
             };
+            if (task.blocked) {
+                status.running = false;
+                status.nextCheckAt = null;
+            }
             this.statuses.set(task.id, status);
         }
 
@@ -561,21 +590,57 @@ export class MonitorEngine {
         this.emitUpdate();
     }
 
+    unblockTask(id: string): boolean {
+        const task = this.tasks.get(id);
+        if (!task) {
+            return false;
+        }
+
+        task.blocked = false;
+        task.blockedReason = null;
+        task.blockedAt = null;
+
+        const status = this.statuses.get(id);
+        if (status) {
+            status.blocked = false;
+            status.blockedReason = null;
+            status.blockedAt = null;
+            status.lastError = null;
+            status.nextCheckAt = null;
+        }
+
+        if (this.running && task.enabled) {
+            this.scheduleTask(id, 250);
+        } else {
+            this.emitUpdate();
+        }
+
+        return true;
+    }
+
     private scheduleTask(id: string, delayMs: number): void {
         if (!this.running) {
             return;
         }
 
         const task = this.tasks.get(id);
-        if (!task || !task.enabled) {
+        if (!task) {
             return;
         }
 
         if (task.timer) {
             clearTimeout(task.timer);
+            task.timer = undefined;
         }
 
         const status = this.statuses.get(id);
+        if (!task.enabled || task.blocked) {
+            if (status) {
+                status.nextCheckAt = null;
+            }
+            return;
+        }
+
         if (status) {
             status.nextCheckAt = scheduleAtIso(delayMs);
         }
@@ -594,6 +659,15 @@ export class MonitorEngine {
 
         const task = this.tasks.get(id);
         if (!task || !task.enabled) {
+            return;
+        }
+
+        if (task.blocked) {
+            const status = this.statuses.get(id);
+            if (status) {
+                status.running = false;
+                status.nextCheckAt = null;
+            }
             return;
         }
 
@@ -640,6 +714,13 @@ export class MonitorEngine {
                 return;
             }
 
+            if (latest.blocked) {
+                if (status) {
+                    status.nextCheckAt = null;
+                }
+                return;
+            }
+
             let nextSeconds = FALLBACK_INTERVAL_SECONDS;
             try {
                 nextSeconds = resolveIntervalSeconds(latest.options.interval);
@@ -661,6 +742,23 @@ export class MonitorEngine {
         let savedFile: string | null = null;
 
         try {
+            if (this.runtimeOptions.userAgent) {
+                await page.setUserAgent(this.runtimeOptions.userAgent);
+            } else if (this.runtimeOptions.mode === "launch" && this.runtimeOptions.launchHeadless) {
+                // In headless launch mode, Chrome exposes "HeadlessChrome" in the UA string.
+                // Normalize it to "Chrome" as a compatibility default (without hard-coding a UA).
+                const ua = await browser.userAgent();
+                const patched = ua.replaceAll("HeadlessChrome/", "Chrome/").replaceAll("HeadlessChrome ", "Chrome ");
+                if (patched !== ua) {
+                    await page.setUserAgent(patched);
+                }
+            }
+            if (this.runtimeOptions.acceptLanguage) {
+                await page.setExtraHTTPHeaders({
+                    "Accept-Language": this.runtimeOptions.acceptLanguage,
+                });
+            }
+
             const time = formatISO9075(new Date()).replaceAll(":", "-");
             const { data, textToCompare, resourcesToCompare, title, finalUrl } = await runTask(page, task.options);
             const antiBotReason = detectAntiBotPage({
@@ -670,9 +768,22 @@ export class MonitorEngine {
                 finalUrl,
             });
             if (antiBotReason) {
-                throw new Error(
-                    `${antiBotReason}. Skipped saving this run. Try attach mode with your regular Chrome session or configure waits.`
-                );
+                task.blocked = true;
+                task.blockedReason = antiBotReason;
+                task.blockedAt = nowIso();
+
+                const status = this.statuses.get(task.id);
+                if (status) {
+                    status.blocked = true;
+                    status.blockedReason = antiBotReason;
+                    status.blockedAt = task.blockedAt;
+                    status.nextCheckAt = null;
+                    status.lastError =
+                        `${antiBotReason}. Monitoring paused for this task. ` +
+                        "Recommended: switch to attach mode using your regular Chrome session, complete the verification once, then click Unblock.";
+                }
+
+                return;
             }
             const previousText = task.lastText;
             const previousRenderedHtml = task.lastRenderedHtml;

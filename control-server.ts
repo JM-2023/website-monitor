@@ -49,6 +49,11 @@ function parseBool(input: string | undefined, fallback: boolean): boolean {
     return fallback;
 }
 
+function normalizeOptionalString(input: string | undefined): string | undefined {
+    const trimmed = input?.trim();
+    return trimmed ? trimmed : undefined;
+}
+
 function readJsonBody<T>(req: IncomingMessage): Promise<T> {
     return new Promise((resolve, reject) => {
         const chunks: Buffer[] = [];
@@ -170,6 +175,8 @@ export async function startControlServer(options: ControlServerOptions = {}): Pr
     const launchHeadless =
         options.launchHeadless ?? parseBool(process.env.WM_LAUNCH_HEADLESS, config.runtime.launchHeadless);
     const tasksFile = options.tasksFile ?? process.env.WM_TASKS_FILE;
+    const envUserAgent = normalizeOptionalString(process.env.WM_USER_AGENT);
+    const envAcceptLanguage = normalizeOptionalString(process.env.WM_ACCEPT_LANGUAGE);
 
     const runtime = await store.updateRuntime({
         mode,
@@ -185,6 +192,8 @@ export async function startControlServer(options: ControlServerOptions = {}): Pr
         launchHeadless: runtime.launchHeadless,
         tasksFile,
         chromeExecutable: process.env.WM_CHROME_EXECUTABLE,
+        userAgent: envUserAgent ?? runtime.userAgent,
+        acceptLanguage: envAcceptLanguage ?? runtime.acceptLanguage,
     });
     await engine.refreshLegacyTasks();
     engine.setUiTasks(store.getTasks());
@@ -237,6 +246,25 @@ export async function startControlServer(options: ControlServerOptions = {}): Pr
                 return;
             }
 
+            if (pathname.startsWith("/api/tasks/") && pathname.endsWith("/unblock") && method === "POST") {
+                const suffix = "/unblock";
+                const rawId = pathname.slice("/api/tasks/".length, -suffix.length);
+                const id = decodeURIComponent(rawId);
+                if (!id) {
+                    sendJson(res, 400, { error: "Missing task id" });
+                    return;
+                }
+
+                const ok = engine.unblockTask(`ui-${id}`);
+                if (!ok) {
+                    sendJson(res, 404, { error: `Task "${id}" not found` });
+                    return;
+                }
+
+                sendJson(res, 200, { ok: true });
+                return;
+            }
+
             if (pathname.startsWith("/api/tasks/") && method === "PUT") {
                 const id = decodeURIComponent(pathname.slice("/api/tasks/".length));
                 const body = await readJsonBody<UiTaskUpdateInput>(req);
@@ -268,6 +296,12 @@ export async function startControlServer(options: ControlServerOptions = {}): Pr
                 if (body.launchHeadless !== undefined && typeof body.launchHeadless !== "boolean") {
                     throw new Error("launchHeadless must be a boolean");
                 }
+                if (body.userAgent !== undefined && typeof body.userAgent !== "string") {
+                    throw new Error("userAgent must be a string");
+                }
+                if (body.acceptLanguage !== undefined && typeof body.acceptLanguage !== "string") {
+                    throw new Error("acceptLanguage must be a string");
+                }
 
                 const nextRuntime = await store.updateRuntime(body);
                 await engine.applyRuntimeOptions({
@@ -275,6 +309,8 @@ export async function startControlServer(options: ControlServerOptions = {}): Pr
                     browserUrl: nextRuntime.browserUrl,
                     includeLegacyTasks: nextRuntime.includeLegacyTasks,
                     launchHeadless: nextRuntime.launchHeadless,
+                    userAgent: envUserAgent ?? nextRuntime.userAgent,
+                    acceptLanguage: envAcceptLanguage ?? nextRuntime.acceptLanguage,
                 });
                 engine.setUiTasks(store.getTasks());
 

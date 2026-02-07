@@ -30,6 +30,8 @@ export interface RuntimeUpdateInput {
     browserUrl?: string;
     includeLegacyTasks?: boolean;
     launchHeadless?: boolean;
+    userAgent?: string;
+    acceptLanguage?: string;
 }
 
 const DEFAULT_BROWSER_URL = "http://127.0.0.1:9222";
@@ -156,6 +158,14 @@ function normalizeMode(mode: unknown, fallback: RuntimeMode): RuntimeMode {
     return mode === "attach" ? "attach" : mode === "launch" ? "launch" : fallback;
 }
 
+function normalizeOptionalString(input: unknown): string | undefined {
+    if (typeof input !== "string") {
+        return undefined;
+    }
+    const trimmed = input.trim();
+    return trimmed ? trimmed : undefined;
+}
+
 function normalizeTask(raw: unknown): UiTaskConfig | null {
     if (!isObject(raw)) {
         return null;
@@ -218,6 +228,8 @@ export function normalizeConfig(raw: unknown): MonitorConfig {
                 typeof runtime.includeLegacyTasks === "boolean" ? runtime.includeLegacyTasks : fallback.runtime.includeLegacyTasks,
             launchHeadless:
                 typeof runtime.launchHeadless === "boolean" ? runtime.launchHeadless : fallback.runtime.launchHeadless,
+            userAgent: normalizeOptionalString(runtime.userAgent),
+            acceptLanguage: normalizeOptionalString(runtime.acceptLanguage),
         },
         tasks: tasksRaw.map(normalizeTask).filter((task): task is UiTaskConfig => Boolean(task)),
     };
@@ -272,6 +284,12 @@ export class ConfigStore {
         }
         if (typeof input.launchHeadless === "boolean") {
             this.config.runtime.launchHeadless = input.launchHeadless;
+        }
+        if (input.userAgent !== undefined) {
+            this.config.runtime.userAgent = normalizeOptionalString(input.userAgent);
+        }
+        if (input.acceptLanguage !== undefined) {
+            this.config.runtime.acceptLanguage = normalizeOptionalString(input.acceptLanguage);
         }
         await this.save();
         return { ...this.config.runtime };

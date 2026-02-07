@@ -49,6 +49,8 @@ export interface MonitorConfig {
         browserUrl: string;
         includeLegacyTasks: boolean;
         launchHeadless: boolean;
+        userAgent?: string;
+        acceptLanguage?: string;
     };
     tasks: UiTaskConfig[];
 }
@@ -67,6 +69,9 @@ export interface RuntimeTaskStatus {
     lastChangeAt: string | null;
     lastError: string | null;
     lastSavedFile: string | null;
+    blocked: boolean;
+    blockedReason: string | null;
+    blockedAt: string | null;
 }
 
 export interface ChangeRecord {
@@ -85,4 +90,6 @@ export interface RuntimeOptions {
     launchHeadless: boolean;
     tasksFile?: string;
     chromeExecutable?: string;
+    userAgent?: string;
+    acceptLanguage?: string;
 }
