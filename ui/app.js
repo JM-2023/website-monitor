@@ -508,6 +508,9 @@ async function handleTableAction(event) {
                 return;
             }
             await request(`/api/tasks/${encodeURIComponent(id)}`, { method: "DELETE" });
+            if (state.editingTaskId === id) {
+                resetForm();
+            }
             showToast("Task deleted");
             await refresh();
             return;
@@ -521,6 +524,9 @@ async function handleTableAction(event) {
             return;
         }
     } catch (error) {
+        if (state.editingTaskId && String(error.message || error).includes("not found")) {
+            resetForm();
+        }
         showToast(error.message || String(error), 3500);
     }
 }
@@ -534,6 +540,10 @@ async function refresh() {
         ]);
         state.engine = engine;
         state.uiTasks = taskData.uiTasks || [];
+        if (state.editingTaskId && !state.uiTasks.some((task) => task.id === state.editingTaskId)) {
+            resetForm();
+            showToast("Edited task no longer exists. Switched back to Create mode.", 3000);
+        }
         state.legacyTasks = taskData.legacyTasks || [];
         state.statuses = new Map((taskData.statuses || []).map((item) => [item.id, item]));
         state.changes = changeData.changes || [];
@@ -585,6 +595,9 @@ async function onFormSubmit(event) {
         resetForm();
         await refresh();
     } catch (error) {
+        if (state.editingTaskId && String(error.message || error).includes("not found")) {
+            resetForm();
+        }
         showToast(error.message || String(error), 3500);
     }
 }
