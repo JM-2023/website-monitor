@@ -9,6 +9,7 @@ const state = {
     taskFilter: "all",
     outputDirTouched: false,
     runtimeDirty: false,
+    isTaskDrawerOpen: false,
 };
 
 const startBtn = document.querySelector("#startBtn");
@@ -26,6 +27,10 @@ const includeLegacyToggle = document.querySelector("#includeLegacyToggle");
 const applyRuntimeBtn = document.querySelector("#applyRuntimeBtn");
 const runtimeHint = document.querySelector("#runtimeHint");
 const focusRiskHint = document.querySelector("#focusRiskHint");
+const openTaskDrawerBtn = document.querySelector("#openTaskDrawerBtn");
+const closeTaskDrawerBtn = document.querySelector("#closeTaskDrawerBtn");
+const taskDrawer = document.querySelector("#taskDrawer");
+const taskDrawerBackdrop = document.querySelector("#taskDrawerBackdrop");
 
 const nameInput = document.querySelector("#taskName");
 const urlInput = document.querySelector("#taskUrl");
@@ -408,6 +413,37 @@ function updateSuggestedOutputDir() {
     outputDirInput.value = slug ? `outputs/${slug}` : "";
 }
 
+function syncDrawerState() {
+    document.body.classList.toggle("drawer-open", state.isTaskDrawerOpen);
+    openTaskDrawerBtn.setAttribute("aria-expanded", state.isTaskDrawerOpen ? "true" : "false");
+    taskDrawer.setAttribute("aria-hidden", state.isTaskDrawerOpen ? "false" : "true");
+    taskDrawerBackdrop.hidden = !state.isTaskDrawerOpen;
+}
+
+function openTaskDrawer({ editing = false } = {}) {
+    state.isTaskDrawerOpen = true;
+    syncDrawerState();
+    if (!editing) {
+        // Start create flow from a clean form every time.
+        resetForm();
+    }
+    window.requestAnimationFrame(() => {
+        nameInput.focus();
+    });
+}
+
+function closeTaskDrawer({ resetForm: shouldReset = false } = {}) {
+    const activeInsideDrawer = document.activeElement && taskDrawer.contains(document.activeElement);
+    state.isTaskDrawerOpen = false;
+    syncDrawerState();
+    if (shouldReset) {
+        resetForm();
+    }
+    if (activeInsideDrawer) {
+        openTaskDrawerBtn.focus();
+    }
+}
+
 function resetForm() {
     state.editingTaskId = null;
     state.outputDirTouched = false;
@@ -501,6 +537,7 @@ async function handleTableAction(event) {
     try {
         if (action === "edit") {
             fillForm(task);
+            openTaskDrawer({ editing: true });
             return;
         }
         if (action === "delete") {
@@ -594,6 +631,7 @@ async function onFormSubmit(event) {
         }
         resetForm();
         await refresh();
+        closeTaskDrawer({ resetForm: false });
     } catch (error) {
         if (state.editingTaskId && String(error.message || error).includes("not found")) {
             resetForm();
@@ -645,7 +683,24 @@ applyRuntimeBtn.addEventListener("click", async () => {
 });
 
 form.addEventListener("submit", onFormSubmit);
-cancelEditBtn.addEventListener("click", () => resetForm());
+openTaskDrawerBtn.addEventListener("click", () => {
+    openTaskDrawer({ editing: false });
+});
+closeTaskDrawerBtn.addEventListener("click", () => {
+    closeTaskDrawer({ resetForm: true });
+});
+taskDrawerBackdrop.addEventListener("click", () => {
+    closeTaskDrawer({ resetForm: false });
+});
+cancelEditBtn.addEventListener("click", () => {
+    resetForm();
+    closeTaskDrawer({ resetForm: false });
+});
+document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && state.isTaskDrawerOpen) {
+        closeTaskDrawer({ resetForm: false });
+    }
+});
 
 startBtn.addEventListener("click", async () => {
     try {
@@ -668,6 +723,7 @@ stopBtn.addEventListener("click", async () => {
 });
 
 resetForm();
+syncDrawerState();
 void refresh();
 setInterval(() => {
     void refresh();
