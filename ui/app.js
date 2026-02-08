@@ -24,9 +24,11 @@ const uiTaskCount = document.querySelector("#uiTaskCount");
 const urlHint = document.querySelector("#urlHint");
 const headlessToggle = document.querySelector("#headlessToggle");
 const includeLegacyToggle = document.querySelector("#includeLegacyToggle");
+const maxConcurrencyInput = document.querySelector("#maxConcurrencyInput");
 const userAgentInput = document.querySelector("#userAgentInput");
 const acceptLanguageInput = document.querySelector("#acceptLanguageInput");
 const applyRuntimeBtn = document.querySelector("#applyRuntimeBtn");
+const configLoadHint = document.querySelector("#configLoadHint");
 const runtimeHint = document.querySelector("#runtimeHint");
 const focusRiskHint = document.querySelector("#focusRiskHint");
 const openTaskDrawerBtn = document.querySelector("#openTaskDrawerBtn");
@@ -40,6 +42,9 @@ const intervalInput = document.querySelector("#taskInterval");
 const waitLoadInput = document.querySelector("#taskWaitLoad");
 const waitSelectorInput = document.querySelector("#taskWaitSelector");
 const waitTimeoutInput = document.querySelector("#taskWaitTimeout");
+const compareSelectorInput = document.querySelector("#taskCompareSelector");
+const ignoreSelectorsInput = document.querySelector("#taskIgnoreSelectors");
+const ignoreTextRegexInput = document.querySelector("#taskIgnoreTextRegex");
 const outputDirInput = document.querySelector("#taskOutputDir");
 const enabledInput = document.querySelector("#taskEnabled");
 
@@ -78,7 +83,7 @@ function formatDuration(totalSeconds) {
     return `${hours}h ${remainMinutes}m`;
 }
 
-function formatNextCheckLabel(nextCheckAt, running, enabled, blocked) {
+function formatNextCheckLabel(nextCheckAt, running, queued, enabled, blocked) {
     if (!enabled) {
         return "Disabled";
     }
@@ -87,6 +92,9 @@ function formatNextCheckLabel(nextCheckAt, running, enabled, blocked) {
     }
     if (running) {
         return "Checking now...";
+    }
+    if (queued) {
+        return "Queued";
     }
     if (!nextCheckAt) {
         return "-";
@@ -106,9 +114,10 @@ function updateCountdownLabels() {
     document.querySelectorAll(".next-check").forEach((element) => {
         const nextCheckAt = element.dataset.nextCheck || "";
         const running = element.dataset.running === "1";
+        const queued = element.dataset.queued === "1";
         const enabled = element.dataset.enabled !== "0";
         const blocked = element.dataset.blocked === "1";
-        element.textContent = formatNextCheckLabel(nextCheckAt, running, enabled, blocked);
+        element.textContent = formatNextCheckLabel(nextCheckAt, running, queued, enabled, blocked);
     });
 }
 
@@ -139,6 +148,32 @@ function isHttpUrl(value) {
     }
 }
 
+function normalizeOutputsPath(value) {
+    return String(value || "")
+        .replaceAll("\\", "/")
+        .replace(/^\.?\//, "")
+        .trim();
+}
+
+function outputsHrefForPath(value, { isDir = false } = {}) {
+    const normalized = normalizeOutputsPath(value);
+    if (!normalized) {
+        return null;
+    }
+
+    const withoutLeading = normalized.replace(/^\/+/, "");
+    if (withoutLeading !== "outputs" && !withoutLeading.startsWith("outputs/")) {
+        return null;
+    }
+
+    const segments = withoutLeading.split("/").filter(Boolean).map((segment) => encodeURIComponent(segment));
+    const base = `/${segments.join("/")}`;
+    if (!isDir) {
+        return base;
+    }
+    return base.endsWith("/") ? base : `${base}/`;
+}
+
 function inferFocusRisk(engine) {
     if (!engine) {
         return "-";
@@ -153,9 +188,12 @@ function inferFocusRisk(engine) {
 }
 
 function getRuntimeFormValues() {
+    const rawConcurrency = maxConcurrencyInput.value.trim();
+    const parsedConcurrency = rawConcurrency ? Number(rawConcurrency) : Number.NaN;
     return {
         launchHeadless: headlessToggle.checked,
         includeLegacyTasks: includeLegacyToggle.checked,
+        maxConcurrency: Number.isFinite(parsedConcurrency) && parsedConcurrency > 0 ? Math.floor(parsedConcurrency) : null,
         userAgent: userAgentInput.value.trim(),
         acceptLanguage: acceptLanguageInput.value.trim(),
     };
@@ -171,9 +209,13 @@ function refreshRuntimeDirty() {
     const launchChanged =
         state.engine.mode !== "attach" && Boolean(state.engine.launchHeadless) !== Boolean(form.launchHeadless);
     const legacyChanged = Boolean(state.engine.includeLegacyTasks) !== Boolean(form.includeLegacyTasks);
+    const concurrencyChanged =
+        state.engine.mode !== "attach" &&
+        form.maxConcurrency !== null &&
+        Number(state.engine.configuredMaxConcurrency ?? state.engine.maxConcurrency ?? 1) !== form.maxConcurrency;
     const userAgentChanged = String(state.engine.userAgent ?? "").trim() !== form.userAgent;
     const acceptLanguageChanged = String(state.engine.acceptLanguage ?? "").trim() !== form.acceptLanguage;
-    state.runtimeDirty = launchChanged || legacyChanged || userAgentChanged || acceptLanguageChanged;
+    state.runtimeDirty = launchChanged || legacyChanged || concurrencyChanged || userAgentChanged || acceptLanguageChanged;
 }
 
 function formatWaitSummary(task) {
@@ -235,14 +277,25 @@ function renderEngine() {
         modeStatus.textContent = "-";
         controlUrl.textContent = "-";
         taskCounts.textContent = "-";
+        configLoadHint.hidden = true;
+        configLoadHint.textContent = "";
         runtimeHint.textContent = "Loading runtime settings...";
         focusRiskHint.textContent = "Focus risk: -";
         headlessToggle.disabled = true;
         includeLegacyToggle.disabled = true;
+        maxConcurrencyInput.disabled = true;
         userAgentInput.disabled = true;
         acceptLanguageInput.disabled = true;
         applyRuntimeBtn.disabled = true;
         return;
+    }
+
+    if (state.engine.configLoadError) {
+        configLoadHint.hidden = false;
+        configLoadHint.textContent = String(state.engine.configLoadError);
+    } else {
+        configLoadHint.hidden = true;
+        configLoadHint.textContent = "";
     }
 
     engineStatus.textContent = state.engine.running ? "Running" : "Stopped";
@@ -265,12 +318,19 @@ function renderEngine() {
     if (!state.runtimeDirty) {
         headlessToggle.checked = Boolean(state.engine.launchHeadless);
         includeLegacyToggle.checked = Boolean(state.engine.includeLegacyTasks);
+        if (state.engine.mode === "attach") {
+            maxConcurrencyInput.value = "1";
+        } else {
+            const configured = Number(state.engine.configuredMaxConcurrency ?? state.engine.maxConcurrency ?? 3);
+            maxConcurrencyInput.value = Number.isFinite(configured) && configured > 0 ? String(Math.floor(configured)) : "3";
+        }
         userAgentInput.value = String(state.engine.userAgent ?? "");
         acceptLanguageInput.value = String(state.engine.acceptLanguage ?? "");
     }
 
     headlessToggle.disabled = state.engine.mode === "attach";
     includeLegacyToggle.disabled = false;
+    maxConcurrencyInput.disabled = state.engine.mode === "attach";
     userAgentInput.disabled = false;
     acceptLanguageInput.disabled = false;
 
@@ -284,17 +344,23 @@ function renderEngine() {
     }
 
     if (state.engine.mode === "attach") {
-        runtimeHint.textContent = "Attach mode uses your existing Chrome and may steal focus.";
+        const configured = Number(state.engine.configuredMaxConcurrency ?? 1);
+        const configuredLabel = Number.isFinite(configured) && configured > 0 ? Math.floor(configured) : 1;
+        runtimeHint.textContent =
+            `Attach mode uses your existing Chrome and may steal focus. ` +
+            `Max concurrency is forced to 1 (configured: ${configuredLabel}).`;
         runtimeHint.classList.add("invalid");
         return;
     }
 
     runtimeHint.classList.remove("invalid");
     const legacyHint = state.engine.includeLegacyTasks ? "Legacy tasks enabled." : "Legacy tasks disabled.";
+    const concurrency = Number(state.engine.maxConcurrency ?? 3);
+    const concurrencyLabel = Number.isFinite(concurrency) && concurrency > 0 ? Math.floor(concurrency) : 3;
     if (state.engine.launchHeadless) {
-        runtimeHint.textContent = `Headless mode is active and minimizes foreground interruption. ${legacyHint}`;
+        runtimeHint.textContent = `Headless mode is active and minimizes foreground interruption. ${legacyHint} Max concurrency: ${concurrencyLabel}.`;
     } else {
-        runtimeHint.textContent = `Visible mode is active for debugging and can steal focus. ${legacyHint}`;
+        runtimeHint.textContent = `Visible mode is active for debugging and can steal focus. ${legacyHint} Max concurrency: ${concurrencyLabel}.`;
     }
 }
 
@@ -315,6 +381,10 @@ function renderUiTasks() {
     for (const task of tasks) {
         const row = document.createElement("tr");
         const status = getStatus(`ui-${task.id}`);
+        const outputHref = outputsHrefForPath(task.outputDir, { isDir: true });
+        const outputCell = outputHref
+            ? `<a href="${outputHref}" target="_blank" rel="noreferrer">${escapeHtml(task.outputDir)}</a>`
+            : escapeHtml(task.outputDir);
         const unblockButton = status?.blocked
             ? `<button class="btn btn-mini" data-action="unblock" data-id="${escapeHtml(task.id)}">Unblock</button>`
             : "";
@@ -324,8 +394,8 @@ function renderUiTasks() {
       <td><a href="${escapeHtml(task.url)}" target="_blank" rel="noreferrer">${escapeHtml(task.url)}</a></td>
       <td>${task.intervalSec}s</td>
       <td>${escapeHtml(formatWaitSummary(task))}</td>
-      <td><span class="next-check" data-next-check="${escapeHtml(status?.nextCheckAt ?? "")}" data-running="${status?.running ? "1" : "0"}" data-enabled="${task.enabled ? "1" : "0"}" data-blocked="${status?.blocked ? "1" : "0"}">-</span></td>
-      <td>${escapeHtml(task.outputDir)}</td>
+      <td><span class="next-check" data-next-check="${escapeHtml(status?.nextCheckAt ?? "")}" data-running="${status?.running ? "1" : "0"}" data-queued="${status?.queued ? "1" : "0"}" data-enabled="${task.enabled ? "1" : "0"}" data-blocked="${status?.blocked ? "1" : "0"}">-</span></td>
+      <td>${outputCell}</td>
       <td>${fmtDate(status?.lastCheckAt ?? null)}</td>
       <td>${fmtDate(status?.lastChangeAt ?? null)}</td>
       <td>${status?.lastError ? escapeHtml(status.lastError) : "-"}</td>
@@ -351,12 +421,16 @@ function renderLegacyTasks() {
     tbody.innerHTML = "";
     for (const item of state.legacyTasks) {
         const row = document.createElement("tr");
+        const outputHref = outputsHrefForPath(item.outputDir, { isDir: true });
+        const outputCell = outputHref
+            ? `<a href="${outputHref}" target="_blank" rel="noreferrer">${escapeHtml(item.outputDir)}</a>`
+            : escapeHtml(item.outputDir);
         row.innerHTML = `
 	      <td>${escapeHtml(item.name)}</td>
 	      <td><a href="${escapeHtml(item.url)}" target="_blank" rel="noreferrer">${escapeHtml(item.url)}</a></td>
 	      <td>${item.intervalSec}s</td>
-	      <td><span class="next-check" data-next-check="${escapeHtml(item.nextCheckAt ?? "")}" data-running="${item.running ? "1" : "0"}" data-enabled="${item.enabled ? "1" : "0"}" data-blocked="${item.blocked ? "1" : "0"}">-</span></td>
-	      <td>${escapeHtml(item.outputDir)}</td>
+	      <td><span class="next-check" data-next-check="${escapeHtml(item.nextCheckAt ?? "")}" data-running="${item.running ? "1" : "0"}" data-queued="${item.queued ? "1" : "0"}" data-enabled="${item.enabled ? "1" : "0"}" data-blocked="${item.blocked ? "1" : "0"}">-</span></td>
+	      <td>${outputCell}</td>
 	      <td>${fmtDate(item.lastCheckAt)}</td>
 	      <td>${item.lastError ? escapeHtml(item.lastError) : "-"}</td>
 	    `;
@@ -380,10 +454,14 @@ function renderChanges() {
     for (const item of state.changes) {
         const li = document.createElement("li");
         li.className = "change-item";
+        const href = outputsHrefForPath(item.savedPath, { isDir: false });
+        const savedLabel = href
+            ? `<a href="${href}" target="_blank" rel="noreferrer">${escapeHtml(item.savedPath)}</a>`
+            : escapeHtml(item.savedPath);
         li.innerHTML = `
       <div><span class="badge">${escapeHtml(item.source)}</span>${escapeHtml(item.taskName)}</div>
       <div class="meta">${fmtDate(item.timestamp)}</div>
-      <div>${escapeHtml(item.savedPath)}</div>
+      <div>${savedLabel}</div>
     `;
         changeList.appendChild(li);
     }
@@ -476,6 +554,9 @@ function resetForm() {
     waitLoadInput.value = "load";
     waitSelectorInput.value = "";
     waitTimeoutInput.value = "0";
+    compareSelectorInput.value = "";
+    ignoreSelectorsInput.value = "";
+    ignoreTextRegexInput.value = "";
     enabledInput.checked = true;
     refreshUrlHint();
 }
@@ -492,6 +573,9 @@ function fillForm(task) {
     waitLoadInput.value = task.waitLoad || "load";
     waitSelectorInput.value = task.waitSelector || "";
     waitTimeoutInput.value = task.waitTimeoutSec ? `${task.waitTimeoutSec}` : "0";
+    compareSelectorInput.value = task.compareSelector || "";
+    ignoreSelectorsInput.value = Array.isArray(task.ignoreSelectors) ? task.ignoreSelectors.join("\n") : "";
+    ignoreTextRegexInput.value = task.ignoreTextRegex || "";
     outputDirInput.value = task.outputDir;
     enabledInput.checked = task.enabled;
     refreshUrlHint();
@@ -504,15 +588,22 @@ async function applyRuntimeChanges() {
 
     const nextHeadless = headlessToggle.checked;
     const nextIncludeLegacy = includeLegacyToggle.checked;
+    const nextMaxConcurrencyRaw = maxConcurrencyInput.value.trim();
+    const nextMaxConcurrency = nextMaxConcurrencyRaw ? Number(nextMaxConcurrencyRaw) : Number.NaN;
     const nextUserAgent = userAgentInput.value.trim();
     const nextAcceptLanguage = acceptLanguageInput.value.trim();
     const launchChanged =
         state.engine.mode !== "attach" && Boolean(state.engine.launchHeadless) !== Boolean(nextHeadless);
     const legacyChanged = Boolean(state.engine.includeLegacyTasks) !== Boolean(nextIncludeLegacy);
+    const maxConcurrencyChanged =
+        state.engine.mode !== "attach" &&
+        Number.isFinite(nextMaxConcurrency) &&
+        nextMaxConcurrency > 0 &&
+        Number(state.engine.configuredMaxConcurrency ?? state.engine.maxConcurrency ?? 1) !== Math.floor(nextMaxConcurrency);
     const userAgentChanged = String(state.engine.userAgent ?? "").trim() !== nextUserAgent;
     const acceptLanguageChanged = String(state.engine.acceptLanguage ?? "").trim() !== nextAcceptLanguage;
 
-    if (!launchChanged && !legacyChanged && !userAgentChanged && !acceptLanguageChanged) {
+    if (!launchChanged && !legacyChanged && !maxConcurrencyChanged && !userAgentChanged && !acceptLanguageChanged) {
         state.runtimeDirty = false;
         renderEngine();
         showToast("Runtime unchanged.");
@@ -531,6 +622,13 @@ async function applyRuntimeChanges() {
     };
     if (state.engine.mode !== "attach") {
         payload.launchHeadless = nextHeadless;
+        if (!Number.isFinite(nextMaxConcurrency) || nextMaxConcurrency <= 0) {
+            showToast("Max Concurrency must be a positive number");
+            return;
+        }
+        if (maxConcurrencyChanged) {
+            payload.maxConcurrency = Math.floor(nextMaxConcurrency);
+        }
     }
     if (userAgentChanged) {
         payload.userAgent = nextUserAgent;
@@ -648,6 +746,9 @@ async function onFormSubmit(event) {
         waitLoad: waitLoadInput.value,
         waitSelector: waitSelectorInput.value.trim(),
         waitTimeoutSec,
+        compareSelector: compareSelectorInput.value.trim(),
+        ignoreSelectors: ignoreSelectorsInput.value,
+        ignoreTextRegex: ignoreTextRegexInput.value.trim(),
         outputDir: outputDirInput.value.trim(),
         enabled: enabledInput.checked,
     };
@@ -707,6 +808,11 @@ headlessToggle.addEventListener("change", () => {
 });
 
 includeLegacyToggle.addEventListener("change", () => {
+    refreshRuntimeDirty();
+    renderEngine();
+});
+
+maxConcurrencyInput.addEventListener("input", () => {
     refreshRuntimeDirty();
     renderEngine();
 });

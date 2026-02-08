@@ -1,11 +1,12 @@
 import fs from "fs/promises";
 import path from "path";
 import { pathToFileURL } from "url";
+import { createHash } from "crypto";
 import puppeteerCore from "puppeteer-core";
 import type { Browser, Page } from "puppeteer-core";
 import { formatISO9075 } from "date-fns";
-import { createDiffReportHtml } from "./diff-report.js";
-import { calculateSimilarity, injectDOMHelpers, sanitizeFilename } from "./helpers.js";
+import { createDiffReport } from "./diff-report.js";
+import { injectDOMHelpers, sanitizeFilename } from "./helpers.js";
 import type {
     ChangeRecord,
     ExtractedResource,
@@ -33,6 +34,11 @@ interface RuntimeTask {
     lastText: string;
     lastRenderedHtml: string;
     lastResources: string[];
+    stateLoaded: boolean;
+    lastTextHash: string;
+    baselineLength: number;
+    baselineTruncated: boolean;
+    failureCount: number;
     blocked: boolean;
     blockedReason: string | null;
     blockedAt: string | null;
@@ -45,6 +51,8 @@ interface EngineSnapshot {
     launchHeadless: boolean;
     browserUrl: string;
     includeLegacyTasks: boolean;
+    configuredMaxConcurrency: number;
+    maxConcurrency: number;
     userAgent?: string;
     acceptLanguage?: string;
     uiTaskCount: number;
@@ -55,6 +63,9 @@ interface EngineSnapshot {
 
 const FALLBACK_INTERVAL_SECONDS = 60;
 const MAX_CHANGE_RECORDS = 300;
+const DEFAULT_MAX_CONCURRENCY = 3;
+const MAX_FAILURE_COUNT = 6;
+const BASELINE_MAX_CHARS = 200_000;
 const DEFAULT_TASKS_FILE = path.resolve(".out/tasks.js");
 
 async function pathExists(filePath: string): Promise<boolean> {
@@ -116,13 +127,202 @@ function scheduleAtIso(delayMs: number): string {
     return new Date(Date.now() + Math.max(0, delayMs)).toISOString();
 }
 
+function sha256(input: string): string {
+    return createHash("sha256").update(input).digest("hex");
+}
+
+function normalizeMaxConcurrency(value: unknown, fallback: number): number {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+        return fallback;
+    }
+    return Math.max(1, Math.floor(parsed));
+}
+
+interface UiDomNoiseConfig {
+    compareSelector?: string;
+    ignoreSelectors?: string[];
+    ignoreTextRegex?: string;
+}
+
+interface TaskStateV1 {
+    version: 1;
+    updatedAt: string;
+    textHash: string;
+    baselineFile: string;
+    baselineLength: number;
+    baselineTruncated: boolean;
+    resources: string[];
+}
+
+function taskStateDir(outputDir: string): string {
+    return path.join(outputDir, ".wm");
+}
+
+function taskStatePath(outputDir: string): string {
+    return path.join(taskStateDir(outputDir), "state.json");
+}
+
+function taskBaselinePath(outputDir: string, baselineFile: string = "baseline.txt"): string {
+    return path.join(taskStateDir(outputDir), baselineFile);
+}
+
+async function writeJsonAtomic(filePath: string, payload: unknown): Promise<void> {
+    const tempPath = `${filePath}.tmp`;
+    await fs.writeFile(tempPath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+    await fs.rename(tempPath, filePath);
+}
+
+function normalizeTaskState(raw: unknown): TaskStateV1 | null {
+    if (!raw || typeof raw !== "object") {
+        return null;
+    }
+    const record = raw as Record<string, unknown>;
+    if (record.version !== 1) {
+        return null;
+    }
+    if (typeof record.textHash !== "string" || !record.textHash.trim()) {
+        return null;
+    }
+
+    const baselineFileRaw = typeof record.baselineFile === "string" ? record.baselineFile.trim() : "";
+    const baselineFile = baselineFileRaw && path.basename(baselineFileRaw) === baselineFileRaw ? baselineFileRaw : "baseline.txt";
+
+    const baselineLengthRaw = typeof record.baselineLength === "number" ? record.baselineLength : 0;
+    const baselineLength = Number.isFinite(baselineLengthRaw) && baselineLengthRaw >= 0 ? baselineLengthRaw : 0;
+
+    const baselineTruncated = typeof record.baselineTruncated === "boolean" ? record.baselineTruncated : false;
+
+    const updatedAt = typeof record.updatedAt === "string" && record.updatedAt ? record.updatedAt : nowIso();
+
+    const resources = Array.isArray(record.resources)
+        ? record.resources.filter((item): item is string => typeof item === "string").map((item) => item.trim()).filter(Boolean)
+        : [];
+
+    return {
+        version: 1,
+        updatedAt,
+        textHash: record.textHash,
+        baselineFile,
+        baselineLength,
+        baselineTruncated,
+        resources,
+    };
+}
+
+async function loadTaskState(outputDir: string): Promise<{ state: TaskStateV1 | null; baselineText: string | null }> {
+    const statePath = taskStatePath(outputDir);
+    let state: TaskStateV1 | null = null;
+    try {
+        const raw = await fs.readFile(statePath, "utf8");
+        state = normalizeTaskState(JSON.parse(raw));
+    } catch {
+        state = null;
+    }
+
+    if (!state) {
+        return { state: null, baselineText: null };
+    }
+
+    const baselinePath = taskBaselinePath(outputDir, state.baselineFile);
+    try {
+        const baselineText = await fs.readFile(baselinePath, "utf8");
+        return { state, baselineText };
+    } catch {
+        return { state, baselineText: null };
+    }
+}
+
+async function saveTaskBaseline(outputDir: string, text: string): Promise<{ length: number; truncated: boolean }> {
+    const length = text.length;
+    const truncated = length > BASELINE_MAX_CHARS;
+    const baselineText = truncated ? `${text.slice(0, BASELINE_MAX_CHARS)}\n\n[...truncated baseline...]\n` : text;
+    const dir = taskStateDir(outputDir);
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(taskBaselinePath(outputDir), baselineText, "utf8");
+    return { length, truncated };
+}
+
+async function saveTaskStateJson(outputDir: string, state: TaskStateV1): Promise<void> {
+    const dir = taskStateDir(outputDir);
+    await fs.mkdir(dir, { recursive: true });
+    await writeJsonAtomic(taskStatePath(outputDir), state);
+}
+
+async function saveTaskBaselineAndState(outputDir: string, input: { text: string; textHash: string; resources: string[] }): Promise<{
+    baselineLength: number;
+    baselineTruncated: boolean;
+}> {
+    const baseline = await saveTaskBaseline(outputDir, input.text);
+    await saveTaskStateJson(outputDir, {
+        version: 1,
+        updatedAt: nowIso(),
+        textHash: input.textHash,
+        baselineFile: "baseline.txt",
+        baselineLength: baseline.length,
+        baselineTruncated: baseline.truncated,
+        resources: input.resources,
+    });
+    return { baselineLength: baseline.length, baselineTruncated: baseline.truncated };
+}
+
+class PagePool {
+    private idlePages: Page[] = [];
+    private totalPages = 0;
+
+    constructor(
+        private readonly browser: Browser,
+        private readonly size: number
+    ) {}
+
+    async acquire(): Promise<Page> {
+        const existing = this.idlePages.pop();
+        if (existing && !existing.isClosed()) {
+            return existing;
+        }
+
+        if (this.totalPages >= this.size) {
+            // Should not happen because the engine enforces concurrency before acquiring pages.
+            throw new Error("Page pool exhausted");
+        }
+
+        const page = await this.browser.newPage();
+        this.totalPages += 1;
+        return page;
+    }
+
+    async release(page: Page): Promise<void> {
+        if (page.isClosed()) {
+            this.totalPages = Math.max(0, this.totalPages - 1);
+            return;
+        }
+        this.idlePages.push(page);
+    }
+
+    async closeAll(): Promise<void> {
+        const pages = this.idlePages.slice();
+        this.idlePages.length = 0;
+        this.totalPages = 0;
+        await Promise.all(
+            pages.map(async (page) => {
+                try {
+                    if (!page.isClosed()) {
+                        await page.close();
+                    }
+                } catch {}
+            })
+        );
+    }
+}
+
 async function runTask(page: Page, options: TaskOptions) {
     const timeout = (options.timeout ?? 15) * 1000;
 
-    await page.goto(options.url, {
+    const response = await page.goto(options.url, {
         waitUntil: options.waitLoad ?? "load",
         timeout,
     });
+    const responseStatus = response?.status() ?? null;
 
     if (options.waitSelector) {
         await page.waitForSelector(options.waitSelector, { timeout });
@@ -133,17 +333,29 @@ async function runTask(page: Page, options: TaskOptions) {
         await new Promise((resolve) => setTimeout(resolve, waitTimeout * 1000));
     }
 
+    const uiConfig = (options as TaskOptions & { __uiConfig?: UiDomNoiseConfig }).__uiConfig;
+
     await page.evaluate(injectDOMHelpers);
     if (options.preprocess) {
-        await page.evaluate(options.preprocess);
+        if (uiConfig) {
+            await page.evaluate(options.preprocess as any, uiConfig as any);
+        } else {
+            await page.evaluate(options.preprocess);
+        }
     }
 
-    const data = (await page.evaluate(options.extract)) ?? "";
-    const textToCompare = options.textToCompare ? (await page.evaluate(options.textToCompare)) ?? "" : data;
+    const data = uiConfig
+        ? ((await page.evaluate(options.extract as any, uiConfig as any)) ?? "")
+        : ((await page.evaluate(options.extract)) ?? "");
+    const textToCompare = options.textToCompare
+        ? uiConfig
+            ? ((await page.evaluate(options.textToCompare as any, uiConfig as any)) ?? "")
+            : ((await page.evaluate(options.textToCompare)) ?? "")
+        : data;
     const resourcesToCompare = options.resourcesToCompare ? await page.evaluate(options.resourcesToCompare) : [];
     const title = await page.title().catch(() => "");
     const finalUrl = page.url();
-    return { data, textToCompare, resourcesToCompare, title, finalUrl };
+    return { data, textToCompare, resourcesToCompare, title, finalUrl, responseStatus };
 }
 
 function detectAntiBotPage(input: { title: string; html: string; text: string; finalUrl: string }): string | null {
@@ -199,6 +411,8 @@ function getNameFromResourceId(id: string): string {
 
 export class MonitorEngine {
     private runtimeOptions: RuntimeOptions;
+    private configuredMaxConcurrency: number;
+    private maxConcurrency: number;
     private uiTasks: UiTaskConfig[] = [];
     private legacyOptions: TaskOptions[] = [];
     private tasks = new Map<string, RuntimeTask>();
@@ -206,6 +420,10 @@ export class MonitorEngine {
     private changes: ChangeRecord[] = [];
     private browser: Browser | null = null;
     private browserManaged = false;
+    private pagePool: PagePool | null = null;
+    private runQueue: string[] = [];
+    private queuedIds = new Set<string>();
+    private runningCount = 0;
     private running = false;
     private lastError: string | null = null;
     private onUpdate: (() => void) | null = null;
@@ -215,6 +433,8 @@ export class MonitorEngine {
             ...options,
             tasksFile: options.tasksFile ?? DEFAULT_TASKS_FILE,
         };
+        this.configuredMaxConcurrency = normalizeMaxConcurrency(options.maxConcurrency, DEFAULT_MAX_CONCURRENCY);
+        this.maxConcurrency = options.mode === "attach" ? 1 : this.configuredMaxConcurrency;
     }
 
     setOnUpdate(listener: (() => void) | null): void {
@@ -241,6 +461,8 @@ export class MonitorEngine {
             launchHeadless: this.runtimeOptions.launchHeadless,
             browserUrl: this.runtimeOptions.browserUrl,
             includeLegacyTasks: this.runtimeOptions.includeLegacyTasks,
+            configuredMaxConcurrency: this.configuredMaxConcurrency,
+            maxConcurrency: this.maxConcurrency,
             userAgent: this.runtimeOptions.userAgent,
             acceptLanguage: this.runtimeOptions.acceptLanguage,
             uiTaskCount: this.uiTasks.length,
@@ -255,6 +477,7 @@ export class MonitorEngine {
         browserUrl: string;
         includeLegacyTasks: boolean;
         launchHeadless: boolean;
+        maxConcurrency?: number;
         userAgent?: string;
         acceptLanguage?: string;
     }): Promise<void> {
@@ -263,6 +486,7 @@ export class MonitorEngine {
             this.runtimeOptions.browserUrl === nextRuntime.browserUrl &&
             this.runtimeOptions.includeLegacyTasks === nextRuntime.includeLegacyTasks &&
             this.runtimeOptions.launchHeadless === nextRuntime.launchHeadless &&
+            this.runtimeOptions.maxConcurrency === nextRuntime.maxConcurrency &&
             this.runtimeOptions.userAgent === nextRuntime.userAgent &&
             this.runtimeOptions.acceptLanguage === nextRuntime.acceptLanguage;
         if (unchanged) {
@@ -280,9 +504,12 @@ export class MonitorEngine {
             browserUrl: nextRuntime.browserUrl,
             includeLegacyTasks: nextRuntime.includeLegacyTasks,
             launchHeadless: nextRuntime.launchHeadless,
+            maxConcurrency: nextRuntime.maxConcurrency,
             userAgent: nextRuntime.userAgent,
             acceptLanguage: nextRuntime.acceptLanguage,
         };
+        this.configuredMaxConcurrency = normalizeMaxConcurrency(nextRuntime.maxConcurrency, DEFAULT_MAX_CONCURRENCY);
+        this.maxConcurrency = nextRuntime.mode === "attach" ? 1 : this.configuredMaxConcurrency;
 
         await this.refreshLegacyTasks();
         this.rebuildRuntimeTasks();
@@ -340,14 +567,28 @@ export class MonitorEngine {
     }
 
     private createUiTaskOptions(task: UiTaskConfig): TaskOptions {
+        const uiConfig: UiDomNoiseConfig = {
+            compareSelector: task.compareSelector,
+            ignoreSelectors: task.ignoreSelectors,
+            ignoreTextRegex: task.ignoreTextRegex,
+        };
+
         return {
+            __uiConfig: uiConfig,
             url: task.url,
             outputDir: task.outputDir,
             waitLoad: task.waitLoad ?? "load",
             waitSelector: task.waitSelector,
             waitTimeout: task.waitTimeoutSec,
             timeout: 20,
-            textToCompare() {
+            textToCompare(config?: UiDomNoiseConfig) {
+                const compareSelectorRaw = config?.compareSelector;
+                const compareSelector = typeof compareSelectorRaw === "string" ? compareSelectorRaw.trim() : "";
+                const ignoreSelectorsRaw = config?.ignoreSelectors;
+                const ignoreSelectors = Array.isArray(ignoreSelectorsRaw) ? ignoreSelectorsRaw : [];
+                const ignoreTextRegexRaw = config?.ignoreTextRegex;
+                const ignoreTextRegex = typeof ignoreTextRegexRaw === "string" ? ignoreTextRegexRaw.trim() : "";
+
                 const clone = (document.body ?? document.documentElement).cloneNode(true);
                 if (!(clone instanceof Element)) {
                     return "";
@@ -359,6 +600,12 @@ export class MonitorEngine {
                     "#mount,[id^='immersive-translate'],[class*='immersive-translate'],.imt-fb-container"
                 ).forEach((node) => node.remove());
 
+                for (const selector of ignoreSelectors) {
+                    try {
+                        clone.querySelectorAll(selector).forEach((node) => node.remove());
+                    } catch {}
+                }
+
                 const walker = document.createTreeWalker(clone, NodeFilter.SHOW_COMMENT);
                 const comments: Node[] = [];
                 while (walker.nextNode()) {
@@ -366,9 +613,33 @@ export class MonitorEngine {
                 }
                 comments.forEach((node) => node.parentNode?.removeChild(node));
 
-                return (clone.textContent ?? "").replace(/\u00a0/g, " ").replace(/\s+/g, " ").trim();
+                let text = "";
+                if (compareSelector) {
+                    try {
+                        const target = clone.querySelector(compareSelector);
+                        text = target?.textContent ?? "";
+                    } catch {
+                        text = "";
+                    }
+                } else {
+                    text = clone.textContent ?? "";
+                }
+
+                if (ignoreTextRegex) {
+                    try {
+                        const re = new RegExp(ignoreTextRegex, "gu");
+                        text = text.replace(re, "");
+                    } catch {}
+                }
+
+                return text.replace(/\u00a0/g, " ").replace(/\s+/g, " ").trim();
             },
-            extract() {
+            extract(config?: UiDomNoiseConfig) {
+                const compareSelectorRaw = config?.compareSelector;
+                const compareSelector = typeof compareSelectorRaw === "string" ? compareSelectorRaw.trim() : "";
+                const ignoreSelectorsRaw = config?.ignoreSelectors;
+                const ignoreSelectors = Array.isArray(ignoreSelectorsRaw) ? ignoreSelectorsRaw : [];
+
                 const clone = document.documentElement?.cloneNode(true);
                 if (!(clone instanceof Element)) {
                     return document.documentElement?.outerHTML ?? document.body.innerHTML;
@@ -386,6 +657,23 @@ export class MonitorEngine {
                         styleNode.remove();
                     }
                 });
+
+                for (const selector of ignoreSelectors) {
+                    try {
+                        clone.querySelectorAll(selector).forEach((node) => node.remove());
+                    } catch {}
+                }
+
+                if (compareSelector) {
+                    try {
+                        const target = clone.querySelector(compareSelector);
+                        const body = clone.querySelector("body");
+                        if (target instanceof Element && body) {
+                            body.innerHTML = "";
+                            body.appendChild(target.cloneNode(true));
+                        }
+                    } catch {}
+                }
 
                 const head = clone.querySelector("head");
                 if (head) {
@@ -405,7 +693,7 @@ export class MonitorEngine {
                 return `<!doctype html>\n${clone.outerHTML}`;
             },
             interval: task.intervalSec,
-        };
+        } as TaskOptions;
     }
 
     private createDescriptorFromOptions(
@@ -427,6 +715,11 @@ export class MonitorEngine {
             lastText: "",
             lastRenderedHtml: "",
             lastResources: [],
+            stateLoaded: false,
+            lastTextHash: "",
+            baselineLength: 0,
+            baselineTruncated: false,
+            failureCount: 0,
             blocked: false,
             blockedReason: null,
             blockedAt: null,
@@ -447,10 +740,17 @@ export class MonitorEngine {
             );
             const previous = this.tasks.get(id);
             if (previous) {
-                descriptor.lastText = previous.lastText;
-                descriptor.lastRenderedHtml = previous.lastRenderedHtml;
-                descriptor.lastResources = previous.lastResources;
+                if (previous.outputDir === descriptor.outputDir) {
+                    descriptor.lastText = previous.lastText;
+                    descriptor.lastRenderedHtml = previous.lastRenderedHtml;
+                    descriptor.lastResources = previous.lastResources;
+                    descriptor.stateLoaded = previous.stateLoaded;
+                    descriptor.lastTextHash = previous.lastTextHash;
+                    descriptor.baselineLength = previous.baselineLength;
+                    descriptor.baselineTruncated = previous.baselineTruncated;
+                }
                 descriptor.active = previous.active;
+                descriptor.failureCount = previous.failureCount;
                 descriptor.blocked = previous.blocked;
                 descriptor.blockedReason = previous.blockedReason;
                 descriptor.blockedAt = previous.blockedAt;
@@ -470,10 +770,17 @@ export class MonitorEngine {
                 );
                 const previous = this.tasks.get(id);
                 if (previous) {
-                    descriptor.lastText = previous.lastText;
-                    descriptor.lastRenderedHtml = previous.lastRenderedHtml;
-                    descriptor.lastResources = previous.lastResources;
+                    if (previous.outputDir === descriptor.outputDir) {
+                        descriptor.lastText = previous.lastText;
+                        descriptor.lastRenderedHtml = previous.lastRenderedHtml;
+                        descriptor.lastResources = previous.lastResources;
+                        descriptor.stateLoaded = previous.stateLoaded;
+                        descriptor.lastTextHash = previous.lastTextHash;
+                        descriptor.baselineLength = previous.baselineLength;
+                        descriptor.baselineTruncated = previous.baselineTruncated;
+                    }
                     descriptor.active = previous.active;
+                    descriptor.failureCount = previous.failureCount;
                     descriptor.blocked = previous.blocked;
                     descriptor.blockedReason = previous.blockedReason;
                     descriptor.blockedAt = previous.blockedAt;
@@ -486,10 +793,18 @@ export class MonitorEngine {
             if (!nextTasks.has(id) && previous.timer) {
                 clearTimeout(previous.timer);
             }
+            if (!nextTasks.has(id)) {
+                this.removeFromQueue(id);
+            }
         }
 
         this.tasks = nextTasks;
         this.syncStatusesWithTasks();
+        for (const task of this.tasks.values()) {
+            if (!task.enabled || task.blocked) {
+                this.removeFromQueue(task.id);
+            }
+        }
 
         if (this.running) {
             for (const task of this.tasks.values()) {
@@ -528,6 +843,7 @@ export class MonitorEngine {
                 intervalSec,
                 outputDir: task.outputDir,
                 running: task.enabled ? current?.running ?? false : false,
+                queued: task.enabled ? current?.queued ?? this.queuedIds.has(task.id) : false,
                 nextCheckAt: task.enabled ? current?.nextCheckAt ?? null : null,
                 lastCheckAt: current?.lastCheckAt ?? null,
                 lastChangeAt: current?.lastChangeAt ?? null,
@@ -539,6 +855,7 @@ export class MonitorEngine {
             };
             if (task.blocked) {
                 status.running = false;
+                status.queued = false;
                 status.nextCheckAt = null;
             }
             this.statuses.set(task.id, status);
@@ -560,6 +877,10 @@ export class MonitorEngine {
             this.rebuildRuntimeTasks();
         }
 
+        this.runQueue.length = 0;
+        this.queuedIds.clear();
+        this.runningCount = 0;
+
         this.running = true;
         this.clearLastError();
 
@@ -574,6 +895,9 @@ export class MonitorEngine {
 
     async stop(): Promise<void> {
         this.running = false;
+        this.runQueue.length = 0;
+        this.queuedIds.clear();
+        this.runningCount = 0;
         for (const task of this.tasks.values()) {
             if (task.timer) {
                 clearTimeout(task.timer);
@@ -583,6 +907,7 @@ export class MonitorEngine {
         }
         for (const status of this.statuses.values()) {
             status.running = false;
+            status.queued = false;
             status.nextCheckAt = null;
         }
 
@@ -599,6 +924,7 @@ export class MonitorEngine {
         task.blocked = false;
         task.blockedReason = null;
         task.blockedAt = null;
+        this.removeFromQueue(id);
 
         const status = this.statuses.get(id);
         if (status) {
@@ -606,6 +932,7 @@ export class MonitorEngine {
             status.blockedReason = null;
             status.blockedAt = null;
             status.lastError = null;
+            status.queued = false;
             status.nextCheckAt = null;
         }
 
@@ -633,26 +960,110 @@ export class MonitorEngine {
             task.timer = undefined;
         }
 
+        this.removeFromQueue(id);
+
         const status = this.statuses.get(id);
         if (!task.enabled || task.blocked) {
             if (status) {
+                status.queued = false;
                 status.nextCheckAt = null;
             }
             return;
         }
 
         if (status) {
+            status.queued = false;
             status.nextCheckAt = scheduleAtIso(delayMs);
         }
 
         task.timer = setTimeout(() => {
-            void this.executeTask(id);
+            task.timer = undefined;
+            this.enqueueExecution(id);
         }, Math.max(0, delayMs));
 
         this.emitUpdate();
     }
 
-    private async executeTask(id: string): Promise<void> {
+    private removeFromQueue(id: string): void {
+        this.queuedIds.delete(id);
+        if (this.runQueue.length > 0) {
+            this.runQueue = this.runQueue.filter((item) => item !== id);
+        }
+        const status = this.statuses.get(id);
+        if (status) {
+            status.queued = false;
+        }
+    }
+
+    private enqueueExecution(id: string): void {
+        if (!this.running) {
+            return;
+        }
+
+        const task = this.tasks.get(id);
+        if (!task || !task.enabled || task.blocked) {
+            return;
+        }
+
+        if (task.active || this.queuedIds.has(id)) {
+            return;
+        }
+
+        this.queuedIds.add(id);
+        this.runQueue.push(id);
+
+        const status = this.statuses.get(id);
+        if (status) {
+            status.queued = true;
+            status.nextCheckAt = null;
+        }
+
+        this.emitUpdate();
+        this.drainQueue();
+    }
+
+    private drainQueue(): void {
+        if (!this.running) {
+            return;
+        }
+
+        while (this.runningCount < this.maxConcurrency && this.runQueue.length > 0) {
+            const id = this.runQueue.shift();
+            if (!id) {
+                break;
+            }
+            this.queuedIds.delete(id);
+
+            const task = this.tasks.get(id);
+            const status = this.statuses.get(id);
+
+            if (!task || !task.enabled || task.blocked) {
+                if (status) {
+                    status.queued = false;
+                }
+                continue;
+            }
+
+            if (task.active) {
+                if (status) {
+                    status.queued = false;
+                }
+                continue;
+            }
+
+            this.runningCount += 1;
+            if (status) {
+                status.queued = false;
+            }
+
+            void this.executeTaskInternal(id).finally(() => {
+                this.runningCount = Math.max(0, this.runningCount - 1);
+                this.drainQueue();
+            });
+        }
+    }
+
+    private async executeTaskInternal(id: string): Promise<void> {
         if (!this.running) {
             return;
         }
@@ -666,13 +1077,13 @@ export class MonitorEngine {
             const status = this.statuses.get(id);
             if (status) {
                 status.running = false;
+                status.queued = false;
                 status.nextCheckAt = null;
             }
             return;
         }
 
         if (task.active) {
-            this.scheduleTask(id, 1000);
             return;
         }
 
@@ -680,19 +1091,21 @@ export class MonitorEngine {
         const status = this.statuses.get(id);
         if (status) {
             status.running = true;
+            status.queued = false;
             status.lastError = null;
             status.nextCheckAt = null;
             this.emitUpdate();
         }
 
+        let errorMessage: string | null = null;
+
         try {
             await this.checkTask(task);
+            task.failureCount = 0;
             this.clearLastError();
         } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
-            if (status) {
-                status.lastError = message;
-            }
+            errorMessage = error instanceof Error ? error.message : String(error);
+            task.failureCount = Math.min(MAX_FAILURE_COUNT, task.failureCount + 1);
             this.setLastError(error);
         } finally {
             task.active = false;
@@ -709,6 +1122,7 @@ export class MonitorEngine {
             const latest = this.tasks.get(id);
             if (!latest || !latest.enabled) {
                 if (status) {
+                    status.queued = false;
                     status.nextCheckAt = null;
                 }
                 return;
@@ -716,30 +1130,75 @@ export class MonitorEngine {
 
             if (latest.blocked) {
                 if (status) {
+                    status.queued = false;
                     status.nextCheckAt = null;
                 }
                 return;
             }
 
-            let nextSeconds = FALLBACK_INTERVAL_SECONDS;
+            let intervalSec = FALLBACK_INTERVAL_SECONDS;
             try {
-                nextSeconds = resolveIntervalSeconds(latest.options.interval);
+                intervalSec = resolveIntervalSeconds(latest.options.interval);
             } catch (error) {
-                if (status) {
+                if (status && !errorMessage) {
                     status.lastError = error instanceof Error ? error.message : String(error);
                 }
             }
             if (status) {
-                status.intervalSec = nextSeconds;
+                status.intervalSec = intervalSec;
             }
-            this.scheduleTask(id, nextSeconds * 1000);
+
+            if (errorMessage) {
+                const baseSec = Math.max(5, intervalSec);
+                const delaySec = Math.min(3600, baseSec * 2 ** latest.failureCount);
+                const jitterMax = Math.min(30, delaySec * 0.1);
+                const jitter = Math.random() * jitterMax;
+                const nextDelaySec = delaySec + jitter;
+                if (status) {
+                    status.lastError = `${errorMessage}. Next retry in ~${Math.round(nextDelaySec)}s.`;
+                }
+                this.scheduleTask(id, nextDelaySec * 1000);
+                return;
+            }
+
+            this.scheduleTask(id, intervalSec * 1000);
         }
     }
 
+    private async ensureTaskStateLoaded(task: RuntimeTask): Promise<void> {
+        if (task.stateLoaded) {
+            return;
+        }
+        task.stateLoaded = true;
+
+        try {
+            const { state, baselineText } = await loadTaskState(task.outputDir);
+            if (!state) {
+                return;
+            }
+
+            task.lastTextHash = state.textHash;
+            task.baselineLength = state.baselineLength;
+            task.baselineTruncated = state.baselineTruncated;
+            task.lastResources = state.resources;
+            if (typeof baselineText === "string") {
+                task.lastText = baselineText;
+            }
+        } catch {}
+    }
+
     private async checkTask(task: RuntimeTask): Promise<void> {
+        await this.ensureTaskStateLoaded(task);
+
         const browser = await this.ensureBrowser();
-        const page = await browser.newPage();
+        const pool = this.pagePool;
+        if (!pool) {
+            throw new Error("Browser page pool not initialized");
+        }
+
+        const page = await pool.acquire();
         let savedFile: string | null = null;
+        let baselineUpdated = false;
 
         try {
             if (this.runtimeOptions.userAgent) {
@@ -760,7 +1219,7 @@ export class MonitorEngine {
             }
 
             const time = formatISO9075(new Date()).replaceAll(":", "-");
-            const { data, textToCompare, resourcesToCompare, title, finalUrl } = await runTask(page, task.options);
+            const { data, textToCompare, resourcesToCompare, title, finalUrl, responseStatus } = await runTask(page, task.options);
             const antiBotReason = detectAntiBotPage({
                 title,
                 html: data,
@@ -777,6 +1236,7 @@ export class MonitorEngine {
                     status.blocked = true;
                     status.blockedReason = antiBotReason;
                     status.blockedAt = task.blockedAt;
+                    status.queued = false;
                     status.nextCheckAt = null;
                     status.lastError =
                         `${antiBotReason}. Monitoring paused for this task. ` +
@@ -785,46 +1245,107 @@ export class MonitorEngine {
 
                 return;
             }
+            if (typeof responseStatus === "number" && responseStatus >= 400) {
+                throw new Error(`HTTP ${responseStatus} for "${task.url}"`);
+            }
+
+            const currentText = String(textToCompare ?? "");
+            const currentHash = sha256(currentText);
+            const currentResources = Array.isArray(resourcesToCompare)
+                ? resourcesToCompare
+                      .filter((item): item is string => typeof item === "string")
+                      .map((item) => item.trim())
+                      .filter(Boolean)
+                : [];
+
+            const hasBaseline = Boolean(task.lastTextHash);
+            if (!hasBaseline) {
+                const saved = await saveTaskBaselineAndState(task.outputDir, {
+                    text: currentText,
+                    textHash: currentHash,
+                    resources: currentResources,
+                });
+                task.lastText = currentText;
+                task.lastTextHash = currentHash;
+                task.baselineLength = saved.baselineLength;
+                task.baselineTruncated = saved.baselineTruncated;
+                task.lastRenderedHtml = data;
+                task.lastResources = currentResources;
+                baselineUpdated = true;
+                return;
+            }
+
             const previousText = task.lastText;
             const previousRenderedHtml = task.lastRenderedHtml;
 
-            const similarity = calculateSimilarity(task.lastText, textToCompare);
-            if (similarity !== 1) {
-                const similarityStr = (similarity * 100).toFixed(2).padStart(5, "0");
+            const textChanged = currentHash !== task.lastTextHash;
+            const resourcesChanged =
+                currentResources.length !== task.lastResources.length ||
+                currentResources.some((item, idx) => item !== task.lastResources[idx]);
+
+            if (textChanged) {
                 await fs.mkdir(task.outputDir, { recursive: true });
-                const reportPath = path.join(task.outputDir, `${time} ${similarityStr}.diff.html`);
                 const screenshotDataUrl = await captureScreenshotDataUrl(page);
-                const diffHtml = createDiffReportHtml({
+                const report = createDiffReport({
                     taskName: task.name,
                     url: task.url,
-                    similarity,
                     previousText,
-                    currentText: textToCompare,
+                    currentText: currentText,
                     screenshotDataUrl,
                     previousRenderedHtml,
                     currentRenderedHtml: data,
                     createdAt: nowIso(),
                 });
-                await fs.writeFile(reportPath, diffHtml);
-                task.lastText = textToCompare;
-                task.lastRenderedHtml = data;
-                savedFile = reportPath;
 
+                const similarityStr = (report.similarity * 100).toFixed(2).padStart(5, "0");
+                const reportPath = path.join(task.outputDir, `${time} ${similarityStr}.diff.html`);
+                await fs.writeFile(reportPath, report.html);
+                savedFile = reportPath;
                 this.recordChange(task, savedFile);
+
+                const saved = await saveTaskBaselineAndState(task.outputDir, {
+                    text: currentText,
+                    textHash: currentHash,
+                    resources: currentResources,
+                });
+                task.baselineLength = saved.baselineLength;
+                task.baselineTruncated = saved.baselineTruncated;
+                task.lastText = currentText;
+                task.lastTextHash = currentHash;
+                baselineUpdated = true;
             }
 
-            if (resourcesToCompare.length >= task.lastResources.length) {
-                const diff = resourcesToCompare.filter((resource) => !task.lastResources.includes(resource));
+            // Always keep the latest rendered HTML snapshot in memory.
+            task.lastRenderedHtml = data;
+
+            if (currentResources.length >= task.lastResources.length) {
+                const diff = currentResources.filter((resource) => !task.lastResources.includes(resource));
                 const savedResources = await this.downloadChangedResources(page, task, diff, time);
                 if (!savedFile && savedResources.length > 0) {
                     savedFile = savedResources[0];
                 }
             }
 
-            task.lastResources = resourcesToCompare;
+            task.lastResources = currentResources;
+
+            if (!baselineUpdated && resourcesChanged) {
+                const baselineLength = task.baselineLength || task.lastText.length;
+                const baselineTruncated = task.baselineTruncated || baselineLength > BASELINE_MAX_CHARS;
+                task.baselineLength = baselineLength;
+                task.baselineTruncated = baselineTruncated;
+                await saveTaskStateJson(task.outputDir, {
+                    version: 1,
+                    updatedAt: nowIso(),
+                    textHash: task.lastTextHash,
+                    baselineFile: "baseline.txt",
+                    baselineLength,
+                    baselineTruncated,
+                    resources: currentResources,
+                });
+            }
         } finally {
             try {
-                await page.close();
+                await pool.release(page);
             } catch {}
         }
 
@@ -907,8 +1428,16 @@ export class MonitorEngine {
 
     private async ensureBrowser(): Promise<Browser> {
         if (this.browser && this.browser.isConnected()) {
+            if (!this.pagePool) {
+                this.pagePool = new PagePool(this.browser, this.maxConcurrency);
+            }
             return this.browser;
         }
+
+        // Stale browser handle; reset.
+        this.browser = null;
+        this.browserManaged = false;
+        this.pagePool = null;
 
         if (this.runtimeOptions.mode === "attach") {
             this.browser = await puppeteerCore.connect({
@@ -916,6 +1445,7 @@ export class MonitorEngine {
                 defaultViewport: null,
             });
             this.browserManaged = false;
+            this.pagePool = new PagePool(this.browser, this.maxConcurrency);
             return this.browser;
         }
 
@@ -929,10 +1459,17 @@ export class MonitorEngine {
             args: ["--no-first-run", "--no-default-browser-check"],
         });
         this.browserManaged = true;
+        this.pagePool = new PagePool(this.browser, this.maxConcurrency);
         return this.browser;
     }
 
     private async teardownBrowser(): Promise<void> {
+        const pool = this.pagePool;
+        this.pagePool = null;
+        try {
+            await pool?.closeAll();
+        } catch {}
+
         if (!this.browser) {
             return;
         }

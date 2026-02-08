@@ -38,6 +38,7 @@ try {
     const browserUrl = process.env.WM_BROWSER_URL || config.runtime.browserUrl;
     const includeLegacyTasks = parseBool(process.env.WM_INCLUDE_LEGACY_TASKS, config.runtime.includeLegacyTasks);
     const launchHeadless = parseBool(process.env.WM_LAUNCH_HEADLESS, config.runtime.launchHeadless);
+    const maxConcurrency = config.runtime.maxConcurrency;
     const userAgent = normalizeOptionalString(process.env.WM_USER_AGENT) ?? config.runtime.userAgent;
     const acceptLanguage = normalizeOptionalString(process.env.WM_ACCEPT_LANGUAGE) ?? config.runtime.acceptLanguage;
 
@@ -48,6 +49,7 @@ try {
         launchHeadless,
         tasksFile: process.env.WM_TASKS_FILE,
         chromeExecutable: process.env.WM_CHROME_EXECUTABLE,
+        maxConcurrency,
         userAgent,
         acceptLanguage,
     });

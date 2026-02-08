@@ -7,7 +7,6 @@ test("createDiffReportHtml includes red/green highlight spans", () => {
     const html = createDiffReportHtml({
         taskName: "Demo",
         url: "https://example.com",
-        similarity: 0.8,
         previousText: "Hello old world",
         currentText: "Hello new world",
         snapshotPath: "outputs/demo/1.html",
@@ -24,7 +23,6 @@ test("createDiffReportHtml can embed rendered preview image", () => {
     const html = createDiffReportHtml({
         taskName: "Preview",
         url: "https://example.com",
-        similarity: 0.9,
         previousText: "before",
         currentText: "after",
         screenshotDataUrl: "data:image/jpeg;base64,ZmFrZS1pbWFnZS1kYXRh",
@@ -39,7 +37,6 @@ test("createDiffReportHtml can embed rendered html iframe", () => {
     const html = createDiffReportHtml({
         taskName: "Rendered DOM",
         url: "https://example.com",
-        similarity: 0.95,
         previousText: "old",
         currentText: "new",
         previousRenderedHtml: "<!doctype html><html><body><h1>Old</h1></body></html>",

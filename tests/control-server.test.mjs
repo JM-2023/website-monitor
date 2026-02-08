@@ -44,6 +44,9 @@ test("Control server falls back from occupied port and validates task URL", asyn
 
     const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "wm-control-test-"));
     const configPath = path.join(tempRoot, "config", "monitors.json");
+    const outputsDir = path.join(tempRoot, "outputs");
+    await fs.mkdir(outputsDir, { recursive: true });
+    await fs.writeFile(path.join(outputsDir, "hello.txt"), "hello outputs", "utf8");
     await fs.mkdir(path.dirname(configPath), { recursive: true });
     await fs.writeFile(
         configPath,
@@ -68,6 +71,7 @@ test("Control server falls back from occupied port and validates task URL", asyn
     let handle = null;
     try {
         handle = await startControlServer({
+            baseDir: tempRoot,
             host,
             preferredPort: blockerPort,
             openBrowser: false,
@@ -87,6 +91,18 @@ test("Control server falls back from occupied port and validates task URL", asyn
         assert.equal(stateBody.focusRisk, "low");
         assert.equal(stateBody.userAgent, undefined);
         assert.equal(stateBody.acceptLanguage, undefined);
+
+        const outputsFile = await fetch(`${handle.url}/outputs/hello.txt`);
+        assert.equal(outputsFile.ok, true);
+        assert.equal(await outputsFile.text(), "hello outputs");
+
+        const outputsIndex = await fetch(`${handle.url}/outputs/`);
+        assert.equal(outputsIndex.ok, true);
+        const outputsIndexBody = await outputsIndex.text();
+        assert.match(outputsIndexBody, /hello\.txt/);
+
+        const outputsDot = await fetch(`${handle.url}/outputs/.wm/state.json`);
+        assert.equal(outputsDot.status, 400);
 
         const badResponse = await fetch(`${handle.url}/api/tasks`, {
             method: "POST",
@@ -129,6 +145,20 @@ test("Control server falls back from occupied port and validates task URL", asyn
         });
         assert.equal(badWaitTimeout.status, 400);
 
+        const badRegex = await fetch(`${handle.url}/api/tasks`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                name: "Bad Regex",
+                url: "https://example.com",
+                intervalSec: 10,
+                ignoreTextRegex: "[",
+                outputDir: "outputs/bad-regex",
+                enabled: true,
+            }),
+        });
+        assert.equal(badRegex.status, 400);
+
         const goodResponse = await fetch(`${handle.url}/api/tasks`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -139,6 +169,9 @@ test("Control server falls back from occupied port and validates task URL", asyn
                 waitLoad: "networkidle2",
                 waitSelector: "#app",
                 waitTimeoutSec: 1.2,
+                compareSelector: "#main",
+                ignoreSelectors: ".ad\n.timestamp",
+                ignoreTextRegex: "\\b\\d{4}-\\d{2}-\\d{2}\\b",
                 outputDir: "outputs/good",
                 enabled: true,
             }),
@@ -153,6 +186,10 @@ test("Control server falls back from occupied port and validates task URL", asyn
         assert.equal(tasksBody.uiTasks[0].waitLoad, "networkidle2");
         assert.equal(tasksBody.uiTasks[0].waitSelector, "#app");
         assert.equal(tasksBody.uiTasks[0].waitTimeoutSec, 1.2);
+        assert.equal(tasksBody.uiTasks[0].compareSelector, "#main");
+        assert.equal(Array.isArray(tasksBody.uiTasks[0].ignoreSelectors), true);
+        assert.equal(tasksBody.uiTasks[0].ignoreSelectors[0], ".ad");
+        assert.equal(tasksBody.uiTasks[0].ignoreTextRegex, "\\b\\d{4}-\\d{2}-\\d{2}\\b");
 
         const unblockResponse = await fetch(`${handle.url}/api/tasks/${encodeURIComponent(tasksBody.uiTasks[0].id)}/unblock`, {
             method: "POST",

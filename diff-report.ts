@@ -6,7 +6,6 @@ interface DiffChunk {
 interface DiffReportOptions {
     taskName: string;
     url: string;
-    similarity: number;
     previousText: string;
     currentText: string;
     snapshotPath?: string;
@@ -24,6 +23,10 @@ interface TruncatedText {
 const MAX_COMPARE_CHARS = 120_000;
 const MAX_RENDER_CHARS = 90_000;
 const MAX_HIGHLIGHT_TERMS = 120;
+
+function clamp(value: number, min: number, max: number): number {
+    return Math.min(max, Math.max(min, value));
+}
 
 const EN_STOP_WORDS = new Set([
     "the",
@@ -262,12 +265,19 @@ function extractHighlightTerms(chunks: DiffChunk[], type: "add" | "del"): string
         .slice(0, MAX_HIGHLIGHT_TERMS);
 }
 
-export function createDiffReportHtml(options: DiffReportOptions): string {
+export function createDiffReport(options: DiffReportOptions): {
+    html: string;
+    similarity: number;
+    addedChars: number;
+    removedChars: number;
+} {
     const previous = truncateText(options.previousText, MAX_COMPARE_CHARS);
     const current = truncateText(options.currentText, MAX_COMPARE_CHARS);
 
     const chunks = myersWordDiff(tokenizeByWord(previous.text), tokenizeByWord(current.text));
     const rendered = renderChunksToHtml(chunks);
+    const den = previous.text.length + current.text.length;
+    const similarity = den === 0 ? 1 : clamp(1 - (rendered.addedChars + rendered.removedChars) / den, 0, 1);
 
     const notes: string[] = [];
     if (previous.truncated || current.truncated) {
@@ -304,7 +314,7 @@ export function createDiffReportHtml(options: DiffReportOptions): string {
         </section>`
         : "";
 
-    return `<!doctype html>
+    const html = `<!doctype html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
@@ -460,7 +470,7 @@ export function createDiffReportHtml(options: DiffReportOptions): string {
         <div class="meta">Created: ${escapeHtml(options.createdAt)}</div>
         ${snapshotMeta}
         <div class="summary">
-          <span class="pill pill-sim">Similarity ${(options.similarity * 100).toFixed(2)}%</span>
+          <span class="pill pill-sim">Similarity ${(similarity * 100).toFixed(2)}%</span>
           <span class="pill pill-add">Added ${rendered.addedChars} chars</span>
           <span class="pill pill-del">Removed ${rendered.removedChars} chars</span>
         </div>
@@ -597,4 +607,15 @@ export function createDiffReportHtml(options: DiffReportOptions): string {
     </script>
   </body>
 </html>`;
+
+    return {
+        html,
+        similarity,
+        addedChars: rendered.addedChars,
+        removedChars: rendered.removedChars,
+    };
+}
+
+export function createDiffReportHtml(options: DiffReportOptions): string {
+    return createDiffReport(options).html;
 }

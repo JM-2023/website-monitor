@@ -33,6 +33,9 @@ export interface UiTaskConfig {
     waitLoad?: WaitLoadStrategy;
     waitSelector?: string;
     waitTimeoutSec?: number;
+    compareSelector?: string;
+    ignoreSelectors?: string[];
+    ignoreTextRegex?: string;
     outputDir: string;
     enabled: boolean;
     createdAt: string;
@@ -49,6 +52,7 @@ export interface MonitorConfig {
         browserUrl: string;
         includeLegacyTasks: boolean;
         launchHeadless: boolean;
+        maxConcurrency?: number;
         userAgent?: string;
         acceptLanguage?: string;
     };
@@ -64,6 +68,7 @@ export interface RuntimeTaskStatus {
     intervalSec: number;
     outputDir: string;
     running: boolean;
+    queued: boolean;
     nextCheckAt: string | null;
     lastCheckAt: string | null;
     lastChangeAt: string | null;
@@ -90,6 +95,7 @@ export interface RuntimeOptions {
     launchHeadless: boolean;
     tasksFile?: string;
     chromeExecutable?: string;
+    maxConcurrency?: number;
     userAgent?: string;
     acceptLanguage?: string;
 }

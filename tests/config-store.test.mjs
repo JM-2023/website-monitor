@@ -112,3 +112,23 @@ test("ConfigStore normalizes legacy runtime config without launchHeadless", asyn
     const loaded = await store.load();
     assert.equal(loaded.runtime.launchHeadless, true);
 });
+
+test("ConfigStore backs up corrupt config and restores defaults", async () => {
+    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "wm-config-corrupt-test-"));
+    const configPath = path.join(tempRoot, "config", "monitors.json");
+    await fs.mkdir(path.dirname(configPath), { recursive: true });
+    await fs.writeFile(configPath, "{ bad json", "utf8");
+
+    const store = new ConfigStore(configPath);
+    const loaded = await store.load();
+    assert.equal(loaded.version, 1);
+    assert.equal(loaded.ui.port, 3210);
+
+    const { error, backupPath } = store.getLoadError();
+    assert.equal(typeof error, "string");
+    assert.equal(typeof backupPath, "string");
+    assert.match(backupPath, /\.corrupt-/);
+
+    const backupContent = await fs.readFile(backupPath, "utf8");
+    assert.equal(backupContent, "{ bad json");
+});

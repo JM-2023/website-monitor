@@ -10,6 +10,9 @@ export interface UiTaskInput {
     waitLoad?: WaitLoadStrategy;
     waitSelector?: string;
     waitTimeoutSec?: number;
+    compareSelector?: string;
+    ignoreSelectors?: string[];
+    ignoreTextRegex?: string;
     outputDir?: string;
     enabled?: boolean;
 }
@@ -21,6 +24,9 @@ export interface UiTaskUpdateInput {
     waitLoad?: WaitLoadStrategy;
     waitSelector?: string;
     waitTimeoutSec?: number;
+    compareSelector?: string;
+    ignoreSelectors?: string[];
+    ignoreTextRegex?: string;
     outputDir?: string;
     enabled?: boolean;
 }
@@ -30,6 +36,7 @@ export interface RuntimeUpdateInput {
     browserUrl?: string;
     includeLegacyTasks?: boolean;
     launchHeadless?: boolean;
+    maxConcurrency?: number;
     userAgent?: string;
     acceptLanguage?: string;
 }
@@ -37,6 +44,7 @@ export interface RuntimeUpdateInput {
 const DEFAULT_BROWSER_URL = "http://127.0.0.1:9222";
 const DEFAULT_PORT = 3210;
 const DEFAULT_LAUNCH_HEADLESS = true;
+const DEFAULT_MAX_CONCURRENCY = 3;
 const WAIT_LOAD_VALUES: WaitLoadStrategy[] = ["load", "domcontentloaded", "networkidle0", "networkidle2"];
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -65,6 +73,14 @@ export function isHttpUrl(url: string): boolean {
 }
 
 function normalizeInterval(value: unknown, fallback: number): number {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+        return fallback;
+    }
+    return Math.max(1, Math.floor(parsed));
+}
+
+function normalizeMaxConcurrency(value: unknown, fallback: number): number {
     const parsed = Number(value);
     if (!Number.isFinite(parsed) || parsed <= 0) {
         return fallback;
@@ -116,6 +132,53 @@ function normalizeOutputDir(value: unknown, fallback: string): string {
     return trimmed || fallback;
 }
 
+function normalizeOptionalSelector(value: unknown): string | undefined {
+    if (typeof value !== "string") {
+        return undefined;
+    }
+    const trimmed = value.trim();
+    return trimmed || undefined;
+}
+
+function normalizeIgnoreSelectors(value: unknown): string[] | undefined {
+    if (Array.isArray(value)) {
+        const items = value
+            .filter((item): item is string => typeof item === "string")
+            .map((item) => item.trim())
+            .filter(Boolean);
+        return items.length > 0 ? items : undefined;
+    }
+    if (typeof value === "string") {
+        const items = value
+            .split(/\r?\n/)
+            .map((line) => line.trim())
+            .filter(Boolean);
+        return items.length > 0 ? items : undefined;
+    }
+    return undefined;
+}
+
+function normalizeIgnoreTextRegex(value: unknown): string | undefined {
+    if (typeof value !== "string") {
+        return undefined;
+    }
+    const trimmed = value.trim();
+    return trimmed || undefined;
+}
+
+function validateIgnoreTextRegex(pattern: string | undefined): void {
+    if (!pattern) {
+        return;
+    }
+    try {
+        // Fixed flags: gu. UI does not support arbitrary flags.
+        void new RegExp(pattern, "gu");
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(`ignoreTextRegex is invalid: ${message}`);
+    }
+}
+
 function normalizeName(value: unknown, fallback: string): string {
     if (typeof value !== "string") {
         return fallback;
@@ -149,6 +212,7 @@ export function createDefaultConfig(): MonitorConfig {
             browserUrl: DEFAULT_BROWSER_URL,
             includeLegacyTasks: false,
             launchHeadless: DEFAULT_LAUNCH_HEADLESS,
+            maxConcurrency: DEFAULT_MAX_CONCURRENCY,
         },
         tasks: [],
     };
@@ -182,6 +246,15 @@ function normalizeTask(raw: unknown): UiTaskConfig | null {
     const waitLoad = isValidWaitLoad(raw.waitLoad) ? raw.waitLoad : undefined;
     const waitSelector = normalizeWaitSelector(raw.waitSelector);
     const waitTimeoutSec = normalizeWaitTimeoutSec(raw.waitTimeoutSec);
+    const compareSelector = normalizeOptionalSelector(raw.compareSelector);
+    const ignoreSelectors = normalizeIgnoreSelectors(raw.ignoreSelectors);
+    let ignoreTextRegex = normalizeIgnoreTextRegex(raw.ignoreTextRegex);
+    try {
+        validateIgnoreTextRegex(ignoreTextRegex);
+    } catch {
+        // Be tolerant when loading existing config files; invalid patterns are dropped.
+        ignoreTextRegex = undefined;
+    }
     const outputDir = normalizeOutputDir(raw.outputDir, defaultOutputDirForName(name));
     const enabled = typeof raw.enabled === "boolean" ? raw.enabled : true;
     const now = new Date().toISOString();
@@ -196,6 +269,9 @@ function normalizeTask(raw: unknown): UiTaskConfig | null {
         waitLoad,
         waitSelector,
         waitTimeoutSec,
+        compareSelector,
+        ignoreSelectors,
+        ignoreTextRegex,
         outputDir,
         enabled,
         createdAt,
@@ -228,6 +304,7 @@ export function normalizeConfig(raw: unknown): MonitorConfig {
                 typeof runtime.includeLegacyTasks === "boolean" ? runtime.includeLegacyTasks : fallback.runtime.includeLegacyTasks,
             launchHeadless:
                 typeof runtime.launchHeadless === "boolean" ? runtime.launchHeadless : fallback.runtime.launchHeadless,
+            maxConcurrency: normalizeMaxConcurrency(runtime.maxConcurrency, fallback.runtime.maxConcurrency ?? DEFAULT_MAX_CONCURRENCY),
             userAgent: normalizeOptionalString(runtime.userAgent),
             acceptLanguage: normalizeOptionalString(runtime.acceptLanguage),
         },
@@ -241,19 +318,43 @@ function cloneConfig(config: MonitorConfig): MonitorConfig {
 
 export class ConfigStore {
     private config: MonitorConfig = createDefaultConfig();
+    private lastLoadError: string | null = null;
+    private lastBackupPath: string | null = null;
 
     constructor(private readonly filePath: string) {}
 
     async load(): Promise<MonitorConfig> {
+        this.lastLoadError = null;
+        this.lastBackupPath = null;
         await fs.mkdir(path.dirname(this.filePath), { recursive: true });
         try {
             const raw = await fs.readFile(this.filePath, "utf8");
             this.config = normalizeConfig(JSON.parse(raw));
         } catch (error) {
+            const code = error && typeof error === "object" && "code" in error ? error.code : undefined;
+            const isMissing = code === "ENOENT";
+            if (!isMissing) {
+                const timestamp = new Date().toISOString().replaceAll(":", "-");
+                const backupPath = `${this.filePath}.corrupt-${timestamp}.json`;
+                try {
+                    await fs.rename(this.filePath, backupPath);
+                    this.lastBackupPath = backupPath;
+                } catch {}
+
+                const message = error instanceof Error ? error.message : String(error);
+                this.lastLoadError = this.lastBackupPath
+                    ? `Failed to load config JSON. The original file was backed up to "${this.lastBackupPath}". Error: ${message}`
+                    : `Failed to load config JSON. Error: ${message}`;
+            }
+
             this.config = createDefaultConfig();
             await this.save();
         }
         return this.get();
+    }
+
+    getLoadError(): { error: string | null; backupPath: string | null } {
+        return { error: this.lastLoadError, backupPath: this.lastBackupPath };
     }
 
     get(): MonitorConfig {
@@ -285,6 +386,12 @@ export class ConfigStore {
         if (typeof input.launchHeadless === "boolean") {
             this.config.runtime.launchHeadless = input.launchHeadless;
         }
+        if (input.maxConcurrency !== undefined) {
+            this.config.runtime.maxConcurrency = normalizeMaxConcurrency(
+                input.maxConcurrency,
+                this.config.runtime.maxConcurrency ?? DEFAULT_MAX_CONCURRENCY
+            );
+        }
         if (input.userAgent !== undefined) {
             this.config.runtime.userAgent = normalizeOptionalString(input.userAgent);
         }
@@ -309,6 +416,9 @@ export class ConfigStore {
         if (input.waitTimeoutSec !== undefined) {
             parseWaitTimeoutSecInput(input.waitTimeoutSec);
         }
+        if (input.ignoreTextRegex !== undefined) {
+            validateIgnoreTextRegex(normalizeIgnoreTextRegex(input.ignoreTextRegex));
+        }
 
         const now = new Date().toISOString();
         const name = normalizeName(input.name, "Untitled task");
@@ -320,6 +430,9 @@ export class ConfigStore {
             waitLoad: input.waitLoad,
             waitSelector: normalizeWaitSelector(input.waitSelector),
             waitTimeoutSec: parseWaitTimeoutSecInput(input.waitTimeoutSec),
+            compareSelector: normalizeOptionalSelector(input.compareSelector),
+            ignoreSelectors: normalizeIgnoreSelectors(input.ignoreSelectors),
+            ignoreTextRegex: normalizeIgnoreTextRegex(input.ignoreTextRegex),
             outputDir: normalizeOutputDir(input.outputDir, defaultOutputDirForName(name)),
             enabled: input.enabled ?? true,
             createdAt: now,
@@ -360,6 +473,17 @@ export class ConfigStore {
         }
         if (input.waitTimeoutSec !== undefined) {
             task.waitTimeoutSec = parseWaitTimeoutSecInput(input.waitTimeoutSec);
+        }
+        if (input.compareSelector !== undefined) {
+            task.compareSelector = normalizeOptionalSelector(input.compareSelector);
+        }
+        if (input.ignoreSelectors !== undefined) {
+            task.ignoreSelectors = normalizeIgnoreSelectors(input.ignoreSelectors);
+        }
+        if (input.ignoreTextRegex !== undefined) {
+            const normalized = normalizeIgnoreTextRegex(input.ignoreTextRegex);
+            validateIgnoreTextRegex(normalized);
+            task.ignoreTextRegex = normalized;
         }
         if (input.outputDir !== undefined) {
             task.outputDir = normalizeOutputDir(input.outputDir, task.outputDir);

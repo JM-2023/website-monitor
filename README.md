@@ -71,11 +71,21 @@ File: `config/monitors.json`
   "runtime": {
     "mode": "launch",
     "browserUrl": "http://127.0.0.1:9222",
-    "includeLegacyTasks": false
+    "includeLegacyTasks": false,
+    "launchHeadless": true,
+    "maxConcurrency": 3
   },
   "tasks": []
 }
 ```
+
+Notes:
+
+- `runtime.maxConcurrency` limits how many tasks can run at the same time. In attach mode, concurrency is forced to `1`.
+- UI tasks also support optional noise filtering fields:
+  - `compareSelector`
+  - `ignoreSelectors`
+  - `ignoreTextRegex` (flags fixed to `gu`)
 
 ## Legacy Task Compatibility
 

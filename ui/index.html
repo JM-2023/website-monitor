@@ -115,6 +115,10 @@
                 Include Legacy Tasks
               </label>
               <label>
+                Max Concurrency
+                <input id="maxConcurrencyInput" type="number" min="1" step="1" />
+              </label>
+              <label>
                 User-Agent (optional)
                 <input id="userAgentInput" placeholder="Auto (headless: strip HeadlessChrome)" />
               </label>
@@ -125,6 +129,7 @@
               <button id="applyRuntimeBtn" class="btn btn-secondary" type="button">Apply Runtime</button>
             </div>
 
+            <p id="configLoadHint" class="inline-hint invalid" hidden></p>
             <p id="runtimeHint" class="inline-hint">Loading runtime settings...</p>
             <p id="focusRiskHint" class="inline-hint">Focus risk: -</p>
           </article>
@@ -219,6 +224,18 @@
             <label>
               Extra Wait (sec)
               <input id="taskWaitTimeout" name="waitTimeoutSec" type="number" min="0" step="0.5" value="0" />
+            </label>
+            <label>
+              Compare Selector (optional)
+              <input id="taskCompareSelector" name="compareSelector" placeholder="#main-content" />
+            </label>
+            <label>
+              Ignore Selectors (optional, one per line)
+              <textarea id="taskIgnoreSelectors" name="ignoreSelectors" rows="4" placeholder=".ad\n.timestamp"></textarea>
+            </label>
+            <label>
+              Ignore Text Regex (optional, flags fixed to gu)
+              <input id="taskIgnoreTextRegex" name="ignoreTextRegex" placeholder="\\b\\d{4}-\\d{2}-\\d{2}\\b" />
             </label>
             <label>
               Output Directory
