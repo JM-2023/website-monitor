@@ -170,6 +170,7 @@ test("Control server falls back from occupied port and validates task URL", asyn
                 waitSelector: "#app",
                 waitTimeoutSec: 1.2,
                 compareSelector: "#main",
+                requiredKeyword: "Breaking News",
                 ignoreSelectors: ".ad\n.timestamp",
                 ignoreTextRegex: "\\b\\d{4}-\\d{2}-\\d{2}\\b",
                 outputDir: "outputs/good",
@@ -187,9 +188,21 @@ test("Control server falls back from occupied port and validates task URL", asyn
         assert.equal(tasksBody.uiTasks[0].waitSelector, "#app");
         assert.equal(tasksBody.uiTasks[0].waitTimeoutSec, 1.2);
         assert.equal(tasksBody.uiTasks[0].compareSelector, "#main");
+        assert.equal(tasksBody.uiTasks[0].requiredKeyword, "Breaking News");
         assert.equal(Array.isArray(tasksBody.uiTasks[0].ignoreSelectors), true);
         assert.equal(tasksBody.uiTasks[0].ignoreSelectors[0], ".ad");
         assert.equal(tasksBody.uiTasks[0].ignoreTextRegex, "\\b\\d{4}-\\d{2}-\\d{2}\\b");
+
+        const updateKeywordResponse = await fetch(`${handle.url}/api/tasks/${encodeURIComponent(tasksBody.uiTasks[0].id)}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                requiredKeyword: "Urgent",
+            }),
+        });
+        assert.equal(updateKeywordResponse.status, 200);
+        const updateKeywordBody = await updateKeywordResponse.json();
+        assert.equal(updateKeywordBody.task.requiredKeyword, "Urgent");
 
         const unblockResponse = await fetch(`${handle.url}/api/tasks/${encodeURIComponent(tasksBody.uiTasks[0].id)}/unblock`, {
             method: "POST",

@@ -34,6 +34,7 @@ export interface UiTaskConfig {
     waitSelector?: string;
     waitTimeoutSec?: number;
     compareSelector?: string;
+    requiredKeyword?: string;
     ignoreSelectors?: string[];
     ignoreTextRegex?: string;
     outputDir: string;

@@ -408,6 +408,12 @@ export async function startControlServer(options: ControlServerOptions = {}): Pr
                     waitSelector: typeof body.waitSelector === "string" ? body.waitSelector : undefined,
                     waitTimeoutSec: body.waitTimeoutSec as any,
                     compareSelector: typeof body.compareSelector === "string" ? body.compareSelector : undefined,
+                    requiredKeyword:
+                        body.requiredKeyword === undefined
+                            ? undefined
+                            : typeof body.requiredKeyword === "string"
+                              ? body.requiredKeyword
+                              : "",
                     ignoreSelectors,
                     ignoreTextRegex: typeof body.ignoreTextRegex === "string" ? body.ignoreTextRegex : undefined,
                     outputDir: typeof body.outputDir === "string" ? body.outputDir : undefined,
@@ -461,6 +467,8 @@ export async function startControlServer(options: ControlServerOptions = {}): Pr
                 if (body.waitTimeoutSec !== undefined) update.waitTimeoutSec = body.waitTimeoutSec as any;
                 if (body.compareSelector !== undefined)
                     update.compareSelector = typeof body.compareSelector === "string" ? body.compareSelector : String(body.compareSelector);
+                if (body.requiredKeyword !== undefined)
+                    update.requiredKeyword = typeof body.requiredKeyword === "string" ? body.requiredKeyword : "";
                 if (body.ignoreSelectors !== undefined) update.ignoreSelectors = ignoreSelectors;
                 if (body.ignoreTextRegex !== undefined)
                     update.ignoreTextRegex = typeof body.ignoreTextRegex === "string" ? body.ignoreTextRegex : String(body.ignoreTextRegex);

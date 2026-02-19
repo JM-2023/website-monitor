@@ -11,6 +11,7 @@ export interface UiTaskInput {
     waitSelector?: string;
     waitTimeoutSec?: number;
     compareSelector?: string;
+    requiredKeyword?: string;
     ignoreSelectors?: string[];
     ignoreTextRegex?: string;
     outputDir?: string;
@@ -25,6 +26,7 @@ export interface UiTaskUpdateInput {
     waitSelector?: string;
     waitTimeoutSec?: number;
     compareSelector?: string;
+    requiredKeyword?: string;
     ignoreSelectors?: string[];
     ignoreTextRegex?: string;
     outputDir?: string;
@@ -140,6 +142,14 @@ function normalizeOptionalSelector(value: unknown): string | undefined {
     return trimmed || undefined;
 }
 
+function normalizeRequiredKeyword(value: unknown): string | undefined {
+    if (typeof value !== "string") {
+        return undefined;
+    }
+    const trimmed = value.trim();
+    return trimmed || undefined;
+}
+
 function normalizeIgnoreSelectors(value: unknown): string[] | undefined {
     if (Array.isArray(value)) {
         const items = value
@@ -247,6 +257,7 @@ function normalizeTask(raw: unknown): UiTaskConfig | null {
     const waitSelector = normalizeWaitSelector(raw.waitSelector);
     const waitTimeoutSec = normalizeWaitTimeoutSec(raw.waitTimeoutSec);
     const compareSelector = normalizeOptionalSelector(raw.compareSelector);
+    const requiredKeyword = normalizeRequiredKeyword(raw.requiredKeyword);
     const ignoreSelectors = normalizeIgnoreSelectors(raw.ignoreSelectors);
     let ignoreTextRegex = normalizeIgnoreTextRegex(raw.ignoreTextRegex);
     try {
@@ -270,6 +281,7 @@ function normalizeTask(raw: unknown): UiTaskConfig | null {
         waitSelector,
         waitTimeoutSec,
         compareSelector,
+        requiredKeyword,
         ignoreSelectors,
         ignoreTextRegex,
         outputDir,
@@ -431,6 +443,7 @@ export class ConfigStore {
             waitSelector: normalizeWaitSelector(input.waitSelector),
             waitTimeoutSec: parseWaitTimeoutSecInput(input.waitTimeoutSec),
             compareSelector: normalizeOptionalSelector(input.compareSelector),
+            requiredKeyword: normalizeRequiredKeyword(input.requiredKeyword),
             ignoreSelectors: normalizeIgnoreSelectors(input.ignoreSelectors),
             ignoreTextRegex: normalizeIgnoreTextRegex(input.ignoreTextRegex),
             outputDir: normalizeOutputDir(input.outputDir, defaultOutputDirForName(name)),
@@ -476,6 +489,9 @@ export class ConfigStore {
         }
         if (input.compareSelector !== undefined) {
             task.compareSelector = normalizeOptionalSelector(input.compareSelector);
+        }
+        if (input.requiredKeyword !== undefined) {
+            task.requiredKeyword = normalizeRequiredKeyword(input.requiredKeyword);
         }
         if (input.ignoreSelectors !== undefined) {
             task.ignoreSelectors = normalizeIgnoreSelectors(input.ignoreSelectors);

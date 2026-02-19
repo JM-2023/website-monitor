@@ -27,18 +27,21 @@ test("ConfigStore creates default config and persists task CRUD", async () => {
         waitLoad: "networkidle2",
         waitSelector: "#main",
         waitTimeoutSec: 1.5,
+        requiredKeyword: "  Breaking News  ",
     });
     assert.equal(created.name, "Example");
     assert.equal(created.outputDir, "outputs/example");
     assert.equal(created.waitLoad, "networkidle2");
     assert.equal(created.waitSelector, "#main");
     assert.equal(created.waitTimeoutSec, 1.5);
+    assert.equal(created.requiredKeyword, "Breaking News");
 
     const updated = await store.updateTask(created.id, {
         intervalSec: 90,
         waitLoad: "domcontentloaded",
         waitSelector: "",
         waitTimeoutSec: 0,
+        requiredKeyword: "",
         enabled: false,
     });
     assert.equal(updated.intervalSec, 90);
@@ -46,6 +49,7 @@ test("ConfigStore creates default config and persists task CRUD", async () => {
     assert.equal(updated.waitLoad, "domcontentloaded");
     assert.equal(updated.waitSelector, undefined);
     assert.equal(updated.waitTimeoutSec, undefined);
+    assert.equal(updated.requiredKeyword, undefined);
 
     const runtime = await store.updateRuntime({
         launchHeadless: false,
@@ -63,6 +67,7 @@ test("ConfigStore creates default config and persists task CRUD", async () => {
     assert.equal(reloaded.tasks.length, 1);
     assert.equal(reloaded.tasks[0].intervalSec, 90);
     assert.equal(reloaded.tasks[0].waitLoad, "domcontentloaded");
+    assert.equal(reloaded.tasks[0].requiredKeyword, undefined);
     assert.equal(reloaded.runtime.launchHeadless, false);
     assert.equal(reloaded.runtime.includeLegacyTasks, false);
     assert.equal(reloaded.runtime.userAgent, "Mozilla/5.0 (Test UA)");

@@ -43,6 +43,7 @@ const waitLoadInput = document.querySelector("#taskWaitLoad");
 const waitSelectorInput = document.querySelector("#taskWaitSelector");
 const waitTimeoutInput = document.querySelector("#taskWaitTimeout");
 const compareSelectorInput = document.querySelector("#taskCompareSelector");
+const requiredKeywordInput = document.querySelector("#taskRequiredKeyword");
 const ignoreSelectorsInput = document.querySelector("#taskIgnoreSelectors");
 const ignoreTextRegexInput = document.querySelector("#taskIgnoreTextRegex");
 const outputDirInput = document.querySelector("#taskOutputDir");
@@ -555,6 +556,7 @@ function resetForm() {
     waitSelectorInput.value = "";
     waitTimeoutInput.value = "0";
     compareSelectorInput.value = "";
+    requiredKeywordInput.value = "";
     ignoreSelectorsInput.value = "";
     ignoreTextRegexInput.value = "";
     enabledInput.checked = true;
@@ -574,6 +576,7 @@ function fillForm(task) {
     waitSelectorInput.value = task.waitSelector || "";
     waitTimeoutInput.value = task.waitTimeoutSec ? `${task.waitTimeoutSec}` : "0";
     compareSelectorInput.value = task.compareSelector || "";
+    requiredKeywordInput.value = task.requiredKeyword || "";
     ignoreSelectorsInput.value = Array.isArray(task.ignoreSelectors) ? task.ignoreSelectors.join("\n") : "";
     ignoreTextRegexInput.value = task.ignoreTextRegex || "";
     outputDirInput.value = task.outputDir;
@@ -747,6 +750,7 @@ async function onFormSubmit(event) {
         waitSelector: waitSelectorInput.value.trim(),
         waitTimeoutSec,
         compareSelector: compareSelectorInput.value.trim(),
+        requiredKeyword: requiredKeywordInput.value.trim(),
         ignoreSelectors: ignoreSelectorsInput.value,
         ignoreTextRegex: ignoreTextRegexInput.value.trim(),
         outputDir: outputDirInput.value.trim(),

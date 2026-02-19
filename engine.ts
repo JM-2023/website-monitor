@@ -28,6 +28,8 @@ interface RuntimeTask {
     url: string;
     outputDir: string;
     enabled: boolean;
+    requiredKeyword?: string;
+    requiredKeywordLower?: string;
     options: TaskOptions;
     active: boolean;
     timer?: ReturnType<typeof setTimeout>;
@@ -137,6 +139,14 @@ function normalizeMaxConcurrency(value: unknown, fallback: number): number {
         return fallback;
     }
     return Math.max(1, Math.floor(parsed));
+}
+
+function normalizeRequiredKeyword(value: unknown): string | undefined {
+    if (typeof value !== "string") {
+        return undefined;
+    }
+    const trimmed = value.trim();
+    return trimmed || undefined;
 }
 
 interface UiDomNoiseConfig {
@@ -701,8 +711,10 @@ export class MonitorEngine {
         source: "ui" | "legacy",
         name: string,
         enabled: boolean,
-        options: TaskOptions
+        options: TaskOptions,
+        requiredKeyword?: string
     ): RuntimeTask {
+        const normalizedKeyword = normalizeRequiredKeyword(requiredKeyword);
         return {
             id,
             source,
@@ -710,6 +722,8 @@ export class MonitorEngine {
             url: options.url,
             outputDir: options.outputDir,
             enabled,
+            requiredKeyword: normalizedKeyword,
+            requiredKeywordLower: normalizedKeyword ? normalizedKeyword.toLowerCase() : undefined,
             options,
             active: false,
             lastText: "",
@@ -736,7 +750,8 @@ export class MonitorEngine {
                 "ui",
                 task.name,
                 task.enabled,
-                this.createUiTaskOptions(task)
+                this.createUiTaskOptions(task),
+                task.requiredKeyword
             );
             const previous = this.tasks.get(id);
             if (previous) {
@@ -1279,11 +1294,14 @@ export class MonitorEngine {
             const previousRenderedHtml = task.lastRenderedHtml;
 
             const textChanged = currentHash !== task.lastTextHash;
+            const keywordMatched =
+                !task.requiredKeywordLower || currentText.toLowerCase().includes(task.requiredKeywordLower);
+            const shouldSaveTextChange = textChanged && keywordMatched;
             const resourcesChanged =
                 currentResources.length !== task.lastResources.length ||
                 currentResources.some((item, idx) => item !== task.lastResources[idx]);
 
-            if (textChanged) {
+            if (shouldSaveTextChange) {
                 await fs.mkdir(task.outputDir, { recursive: true });
                 const screenshotDataUrl = await captureScreenshotDataUrl(page);
                 const report = createDiffReport({
@@ -1315,8 +1333,10 @@ export class MonitorEngine {
                 baselineUpdated = true;
             }
 
-            // Always keep the latest rendered HTML snapshot in memory.
-            task.lastRenderedHtml = data;
+            // Keep rendered HTML aligned with baseline snapshot.
+            if (!textChanged || shouldSaveTextChange) {
+                task.lastRenderedHtml = data;
+            }
 
             if (currentResources.length >= task.lastResources.length) {
                 const diff = currentResources.filter((resource) => !task.lastResources.includes(resource));

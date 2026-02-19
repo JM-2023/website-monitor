@@ -12,6 +12,7 @@ It periodically opens pages in Chrome, extracts a comparable text snapshot, and 
   - `attach`: connect to your existing Chrome (best for login / anti-bot challenges)
 - UI task noise filtering:
   - `compareSelector` to focus on a DOM region
+  - `requiredKeyword` to only save when changed text contains a specific keyword (case-insensitive)
   - `ignoreSelectors` to remove noisy DOM nodes
   - `ignoreTextRegex` to strip noisy text (regex flags fixed to `gu`)
 - Change reports: word-level diff, similarity score in filename, full-page screenshot, DOM snapshot
@@ -49,12 +50,14 @@ npm run dev:attach   # attach mode control panel
 - It removes common noise (scripts, templates, hidden nodes, some translation-plugin artifacts, etc.).
 - Optional noise controls:
   - `compareSelector`: only compare text inside a specific DOM region
+  - `requiredKeyword`: only save when changed text contains this keyword (case-insensitive)
   - `ignoreSelectors`: remove matching nodes before extracting text
   - `ignoreTextRegex`: remove matching text before hashing/comparing (flags fixed to `gu`)
 - Baseline behavior:
   - First run writes the baseline and does not produce a diff report.
   - Subsequent runs compare the current snapshot to the baseline hash.
   - When changed, it writes a `.diff.html` report and updates the baseline.
+  - If `requiredKeyword` is set and changed text does not contain it, it does not save and does not update baseline.
 
 ## Launch vs Attach
 
@@ -127,6 +130,7 @@ Tasks are stored under `tasks` in `config/monitors.json` and are fully editable 
 - `waitSelector`: wait for a DOM element (CSS selector) after navigation
 - `waitTimeoutSec`: extra fixed delay after load/selector (seconds; can be fractional)
 - `compareSelector`: compare only this DOM region (CSS selector)
+- `requiredKeyword`: only save when changed comparison text contains this keyword (case-insensitive)
 - `ignoreSelectors`: remove these selectors before extracting text (one per line in the UI)
 - `ignoreTextRegex`: `text.replace(re, "")` before hashing/comparing (flags fixed to `gu`)
 - `outputDir`: output directory path; recommended to keep it under `outputs/...` so the console can link to it
@@ -299,4 +303,3 @@ To stop leftover monitor processes quickly, double-click `stop.command`.
 ## License
 
 ISC
-
