@@ -7,6 +7,7 @@
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
+    <div class="background-grid" aria-hidden="true"></div>
     <div class="background-glow glow-a"></div>
     <div class="background-glow glow-b"></div>
 
@@ -193,6 +194,12 @@
         </div>
 
         <div class="task-drawer-body">
+          <div class="drawer-guidance">
+            <p id="formIntroEyebrow" class="drawer-kicker">Steady first pass</p>
+            <p id="formIntro" class="drawer-lead">
+              Start with one stable page. You can tighten selectors after the first baseline is saved.
+            </p>
+          </div>
           <form id="taskForm" class="form">
             <label>
               Name
@@ -258,7 +265,13 @@
         </div>
       </aside>
 
-      <aside id="toast" class="toast" hidden></aside>
+      <aside id="toast" class="toast" hidden aria-live="polite" aria-atomic="true" role="status">
+        <div class="toast-mark" aria-hidden="true"></div>
+        <div class="toast-copy">
+          <p id="toastTitle" class="toast-title">Update</p>
+          <p id="toastMessage" class="toast-message"></p>
+        </div>
+      </aside>
     </main>
 
     <script type="module" src="/app.js"></script>

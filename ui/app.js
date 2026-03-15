@@ -10,6 +10,13 @@ const state = {
     outputDirTouched: false,
     runtimeDirty: false,
     isTaskDrawerOpen: false,
+    toastHideTimer: 0,
+    toastResetTimer: 0,
+    hasHydrated: false,
+    hasCelebratedFirstTask: false,
+    hasCelebratedFirstChange: false,
+    newChangeKeys: new Set(),
+    lastRuntimeDirty: false,
 };
 
 const startBtn = document.querySelector("#startBtn");
@@ -18,6 +25,8 @@ const form = document.querySelector("#taskForm");
 const cancelEditBtn = document.querySelector("#cancelEditBtn");
 const submitTaskBtn = document.querySelector("#submitTaskBtn");
 const formTitle = document.querySelector("#formTitle");
+const formIntroEyebrow = document.querySelector("#formIntroEyebrow");
+const formIntro = document.querySelector("#formIntro");
 const taskSearchInput = document.querySelector("#taskSearchInput");
 const taskFilterSelect = document.querySelector("#taskFilterSelect");
 const uiTaskCount = document.querySelector("#uiTaskCount");
@@ -35,6 +44,10 @@ const openTaskDrawerBtn = document.querySelector("#openTaskDrawerBtn");
 const closeTaskDrawerBtn = document.querySelector("#closeTaskDrawerBtn");
 const taskDrawer = document.querySelector("#taskDrawer");
 const taskDrawerBackdrop = document.querySelector("#taskDrawerBackdrop");
+const toast = document.querySelector("#toast");
+const toastTitle = document.querySelector("#toastTitle");
+const toastMessage = document.querySelector("#toastMessage");
+const reducedMotionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
 
 const nameInput = document.querySelector("#taskName");
 const urlInput = document.querySelector("#taskUrl");
@@ -122,13 +135,169 @@ function updateCountdownLabels() {
     });
 }
 
-function showToast(message, duration = 2200) {
-    const toast = document.querySelector("#toast");
-    toast.textContent = message;
-    toast.hidden = false;
-    setTimeout(() => {
+function formatTaskCount(count) {
+    return `${count} task${count === 1 ? "" : "s"}`;
+}
+
+function formatVisibleTaskCount(visibleCount, totalCount) {
+    if (visibleCount === totalCount) {
+        return formatTaskCount(totalCount);
+    }
+    return `${visibleCount} of ${formatTaskCount(totalCount)}`;
+}
+
+function hasTaskViewFilters() {
+    return Boolean(state.taskSearch.trim()) || state.taskFilter !== "all";
+}
+
+function changeKey(item) {
+    return `${item.timestamp || ""}::${item.savedPath || ""}`;
+}
+
+function setDrawerGuidance(editing) {
+    formIntroEyebrow.textContent = editing ? "Fine-tune the watch" : "Steady first pass";
+    formIntro.textContent = editing
+        ? "Adjust timing, selectors, or output details without changing more than you need."
+        : "Start with one stable page. You can tighten selectors after the first baseline is saved.";
+}
+
+function motionAllowed() {
+    return !reducedMotionQuery.matches;
+}
+
+function animateElement(element, keyframes, options) {
+    if (!motionAllowed() || !element || typeof element.animate !== "function") {
+        return;
+    }
+
+    try {
+        element.animate(keyframes, options);
+    } catch {
+        // Ignore animation failures and keep interaction logic intact.
+    }
+}
+
+function nudgeElement(element, { scale = 1.03, y = -2, duration = 240 } = {}) {
+    animateElement(
+        element,
+        [
+            { transform: "translateY(0) scale(1)" },
+            { transform: `translateY(${y}px) scale(${scale})` },
+            { transform: "translateY(0) scale(1)" },
+        ],
+        {
+            duration,
+            easing: "cubic-bezier(0.16, 1, 0.3, 1)",
+        }
+    );
+}
+
+function emphasizeButton(button) {
+    animateElement(
+        button,
+        [
+            { transform: "translateY(0) scale(1)" },
+            { transform: "translateY(-2px) scale(1.025)" },
+            { transform: "translateY(0) scale(1)" },
+        ],
+        {
+            duration: 300,
+            easing: "cubic-bezier(0.16, 1, 0.3, 1)",
+        }
+    );
+}
+
+function spawnButtonRipple(button, event) {
+    if (!motionAllowed() || !button) {
+        return;
+    }
+
+    const rect = button.getBoundingClientRect();
+    const size = Math.max(rect.width, rect.height) * 1.15;
+    const offsetX = "clientX" in event ? event.clientX - rect.left - size / 2 : rect.width / 2 - size / 2;
+    const offsetY = "clientY" in event ? event.clientY - rect.top - size / 2 : rect.height / 2 - size / 2;
+    const ripple = document.createElement("span");
+    ripple.className = "btn-ripple";
+    ripple.style.width = `${size}px`;
+    ripple.style.height = `${size}px`;
+    ripple.style.left = `${offsetX}px`;
+    ripple.style.top = `${offsetY}px`;
+    button.appendChild(ripple);
+    ripple.addEventListener(
+        "animationend",
+        () => {
+            ripple.remove();
+        },
+        { once: true }
+    );
+}
+
+function installButtonRipples() {
+    document.addEventListener("pointerdown", (event) => {
+        const target = event.target;
+        if (!(target instanceof Element)) {
+            return;
+        }
+        const button = target.closest(".btn");
+        if (!button) {
+            return;
+        }
+        spawnButtonRipple(button, event);
+    });
+}
+
+function hideToast({ immediate = false } = {}) {
+    window.clearTimeout(state.toastHideTimer);
+    window.clearTimeout(state.toastResetTimer);
+    toast.classList.remove("is-visible");
+
+    if (immediate) {
         toast.hidden = true;
+        return;
+    }
+
+    state.toastResetTimer = window.setTimeout(() => {
+        toast.hidden = true;
+    }, 220);
+}
+
+function showToast(message, options = {}) {
+    const nextOptions = typeof options === "number" ? { duration: options } : options;
+    const {
+        title = "Console update",
+        tone = "info",
+        duration = tone === "error" ? 4200 : 2400,
+        emphasis = "normal",
+    } = nextOptions;
+
+    window.clearTimeout(state.toastHideTimer);
+    window.clearTimeout(state.toastResetTimer);
+
+    toastTitle.textContent = title;
+    toastMessage.textContent = message;
+    toastMessage.hidden = !message;
+    toast.dataset.tone = tone;
+    toast.dataset.emphasis = emphasis;
+    toast.setAttribute("role", tone === "error" ? "alert" : "status");
+    toast.style.setProperty("--toast-duration", `${duration}ms`);
+    toast.hidden = false;
+    toast.classList.remove("is-visible");
+    void toast.offsetWidth;
+    toast.classList.add("is-visible");
+
+    state.toastHideTimer = window.setTimeout(() => {
+        hideToast();
     }, duration);
+}
+
+function showErrorToast(error, options = {}) {
+    const message = error instanceof Error ? error.message : String(error);
+    showToast(message, {
+        title: "Request failed",
+        tone: "error",
+        duration: 4000,
+        ...options,
+    });
 }
 
 function escapeHtml(input) {
@@ -206,16 +375,17 @@ function refreshRuntimeDirty() {
         return;
     }
 
-    const form = getRuntimeFormValues();
+    const formValues = getRuntimeFormValues();
     const launchChanged =
-        state.engine.mode !== "attach" && Boolean(state.engine.launchHeadless) !== Boolean(form.launchHeadless);
-    const legacyChanged = Boolean(state.engine.includeLegacyTasks) !== Boolean(form.includeLegacyTasks);
+        state.engine.mode !== "attach" && Boolean(state.engine.launchHeadless) !== Boolean(formValues.launchHeadless);
+    const legacyChanged = Boolean(state.engine.includeLegacyTasks) !== Boolean(formValues.includeLegacyTasks);
     const concurrencyChanged =
         state.engine.mode !== "attach" &&
-        form.maxConcurrency !== null &&
-        Number(state.engine.configuredMaxConcurrency ?? state.engine.maxConcurrency ?? 1) !== form.maxConcurrency;
-    const userAgentChanged = String(state.engine.userAgent ?? "").trim() !== form.userAgent;
-    const acceptLanguageChanged = String(state.engine.acceptLanguage ?? "").trim() !== form.acceptLanguage;
+        formValues.maxConcurrency !== null &&
+        Number(state.engine.configuredMaxConcurrency ?? state.engine.maxConcurrency ?? 1) !== formValues.maxConcurrency;
+    const userAgentChanged = String(state.engine.userAgent ?? "").trim() !== formValues.userAgent;
+    const acceptLanguageChanged = String(state.engine.acceptLanguage ?? "").trim() !== formValues.acceptLanguage;
+
     state.runtimeDirty = launchChanged || legacyChanged || concurrencyChanged || userAgentChanged || acceptLanguageChanged;
 }
 
@@ -251,10 +421,11 @@ function filteredUiTasks() {
 
 async function request(path, options = {}) {
     const res = await fetch(path, {
+        ...options,
         headers: {
             "Content-Type": "application/json",
+            ...(options.headers || {}),
         },
-        ...options,
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
@@ -341,27 +512,48 @@ function renderEngine() {
     if (state.runtimeDirty) {
         runtimeHint.textContent = "Pending runtime changes. Click Apply Runtime to take effect.";
         runtimeHint.classList.remove("invalid");
-        return;
-    }
-
-    if (state.engine.mode === "attach") {
+    } else if (state.engine.mode === "attach") {
         const configured = Number(state.engine.configuredMaxConcurrency ?? 1);
         const configuredLabel = Number.isFinite(configured) && configured > 0 ? Math.floor(configured) : 1;
         runtimeHint.textContent =
             `Attach mode uses your existing Chrome and may steal focus. ` +
             `Max concurrency is forced to 1 (configured: ${configuredLabel}).`;
         runtimeHint.classList.add("invalid");
-        return;
+    } else {
+        runtimeHint.classList.remove("invalid");
+        const legacyHint = state.engine.includeLegacyTasks ? "Legacy tasks enabled." : "Legacy tasks disabled.";
+        const concurrency = Number(state.engine.maxConcurrency ?? 3);
+        const concurrencyLabel = Number.isFinite(concurrency) && concurrency > 0 ? Math.floor(concurrency) : 3;
+        if (state.engine.launchHeadless) {
+            runtimeHint.textContent = `Headless mode is active and minimizes foreground interruption. ${legacyHint} Max concurrency: ${concurrencyLabel}.`;
+        } else {
+            runtimeHint.textContent = `Visible mode is active for debugging and can steal focus. ${legacyHint} Max concurrency: ${concurrencyLabel}.`;
+        }
     }
 
-    runtimeHint.classList.remove("invalid");
-    const legacyHint = state.engine.includeLegacyTasks ? "Legacy tasks enabled." : "Legacy tasks disabled.";
-    const concurrency = Number(state.engine.maxConcurrency ?? 3);
-    const concurrencyLabel = Number.isFinite(concurrency) && concurrency > 0 ? Math.floor(concurrency) : 3;
-    if (state.engine.launchHeadless) {
-        runtimeHint.textContent = `Headless mode is active and minimizes foreground interruption. ${legacyHint} Max concurrency: ${concurrencyLabel}.`;
-    } else {
-        runtimeHint.textContent = `Visible mode is active for debugging and can steal focus. ${legacyHint} Max concurrency: ${concurrencyLabel}.`;
+    applyRuntimeBtn.classList.toggle("btn-ready", state.runtimeDirty);
+    runtimeHint.classList.toggle("inline-hint-ready", state.runtimeDirty);
+
+    if (state.runtimeDirty && !state.lastRuntimeDirty) {
+        emphasizeButton(applyRuntimeBtn);
+        nudgeElement(runtimeHint, { scale: 1.01, y: -1, duration: 220 });
+    }
+    state.lastRuntimeDirty = state.runtimeDirty;
+}
+
+function handleEmptyStateAction(event) {
+    const action = event.currentTarget.dataset.emptyAction;
+    if (action === "create-task") {
+        openTaskDrawer({ editing: false });
+        return;
+    }
+    if (action === "clear-task-filters") {
+        state.taskSearch = "";
+        state.taskFilter = "all";
+        taskSearchInput.value = "";
+        taskFilterSelect.value = "all";
+        renderUiTasks();
+        taskSearchInput.focus();
     }
 }
 
@@ -370,17 +562,53 @@ function renderUiTasks() {
     tbody.innerHTML = "";
 
     const tasks = filteredUiTasks();
-    uiTaskCount.textContent = `${tasks.length} task${tasks.length === 1 ? "" : "s"}`;
+    uiTaskCount.textContent = formatVisibleTaskCount(tasks.length, state.uiTasks.length);
 
     if (tasks.length === 0) {
         const emptyRow = document.createElement("tr");
-        emptyRow.innerHTML = '<td colspan="11">No tasks match the current search/filter.</td>';
+        emptyRow.className = "table-empty-row";
+
+        if (state.uiTasks.length === 0) {
+            emptyRow.innerHTML = `
+        <td colspan="11">
+          <div class="empty-state empty-state-table">
+            <p class="empty-state-kicker">First monitor</p>
+            <h3>No tasks yet</h3>
+            <p class="empty-state-copy">Start with one page you care about, save it, and let the first run establish a baseline.</p>
+            <div class="empty-state-actions">
+              <button type="button" class="btn btn-secondary" data-empty-action="create-task">Create your first task</button>
+            </div>
+          </div>
+        </td>
+      `;
+        } else {
+            const guidance = hasTaskViewFilters()
+                ? "Try a broader search or switch back to all tasks."
+                : "Adjust filters to bring your saved tasks back into view.";
+            emptyRow.innerHTML = `
+        <td colspan="11">
+          <div class="empty-state empty-state-table empty-state-muted">
+            <p class="empty-state-kicker">Filtered view</p>
+            <h3>No tasks match this view</h3>
+            <p class="empty-state-copy">${escapeHtml(guidance)}</p>
+            <div class="empty-state-actions">
+              <button type="button" class="btn btn-secondary" data-empty-action="clear-task-filters">Clear search and filters</button>
+            </div>
+          </div>
+        </td>
+      `;
+        }
+
         tbody.appendChild(emptyRow);
+        tbody.querySelectorAll("[data-empty-action]").forEach((element) => {
+            element.addEventListener("click", handleEmptyStateAction);
+        });
         return;
     }
 
     for (const task of tasks) {
         const row = document.createElement("tr");
+        row.className = `task-row${task.enabled ? "" : " task-row-disabled"}`;
         const status = getStatus(`ui-${task.id}`);
         const outputHref = outputsHrefForPath(task.outputDir, { isDir: true });
         const outputCell = outputHref
@@ -389,6 +617,7 @@ function renderUiTasks() {
         const unblockButton = status?.blocked
             ? `<button class="btn btn-mini" data-action="unblock" data-id="${escapeHtml(task.id)}">Unblock</button>`
             : "";
+
         row.innerHTML = `
       <td><input type="checkbox" data-action="toggle" data-id="${escapeHtml(task.id)}" ${task.enabled ? "checked" : ""}></td>
       <td>${escapeHtml(task.name)}</td>
@@ -409,8 +638,10 @@ function renderUiTasks() {
         tbody.appendChild(row);
     }
 
-    tbody.querySelectorAll("button[data-action],input[data-action]").forEach((element) => {
+    tbody.querySelectorAll("button[data-action]").forEach((element) => {
         element.addEventListener("click", handleTableAction);
+    });
+    tbody.querySelectorAll("input[data-action]").forEach((element) => {
         element.addEventListener("change", handleTableAction);
     });
 
@@ -420,12 +651,14 @@ function renderUiTasks() {
 function renderLegacyTasks() {
     const tbody = document.querySelector("#legacyTable tbody");
     tbody.innerHTML = "";
+
     for (const item of state.legacyTasks) {
         const row = document.createElement("tr");
         const outputHref = outputsHrefForPath(item.outputDir, { isDir: true });
         const outputCell = outputHref
             ? `<a href="${outputHref}" target="_blank" rel="noreferrer">${escapeHtml(item.outputDir)}</a>`
             : escapeHtml(item.outputDir);
+
         row.innerHTML = `
 	      <td>${escapeHtml(item.name)}</td>
 	      <td><a href="${escapeHtml(item.url)}" target="_blank" rel="noreferrer">${escapeHtml(item.url)}</a></td>
@@ -444,23 +677,37 @@ function renderLegacyTasks() {
 function renderChanges() {
     const changeList = document.querySelector("#changeList");
     changeList.innerHTML = "";
+
     if (state.changes.length === 0) {
         const empty = document.createElement("li");
-        empty.className = "change-item";
-        empty.textContent = "No changes yet.";
+        empty.className = "change-item change-item-empty";
+        empty.innerHTML = `
+      <div class="empty-state empty-state-compact">
+        <p class="empty-state-kicker">Awaiting signal</p>
+        <h3>No saved changes yet</h3>
+        <p class="empty-state-copy">The first run establishes a baseline. Saved diff reports will appear here when a page actually shifts.</p>
+      </div>
+    `;
         changeList.appendChild(empty);
         return;
     }
 
     for (const item of state.changes) {
         const li = document.createElement("li");
-        li.className = "change-item";
+        const isNew = state.newChangeKeys.has(changeKey(item));
+        li.className = `change-item${isNew ? " change-item-new" : ""}`;
+
         const href = outputsHrefForPath(item.savedPath, { isDir: false });
         const savedLabel = href
             ? `<a href="${href}" target="_blank" rel="noreferrer">${escapeHtml(item.savedPath)}</a>`
             : escapeHtml(item.savedPath);
+        const freshness = isNew ? '<span class="change-freshness">new</span>' : "";
+
         li.innerHTML = `
-      <div><span class="badge">${escapeHtml(item.source)}</span>${escapeHtml(item.taskName)}</div>
+      <div class="change-head">
+        <div><span class="badge">${escapeHtml(item.source)}</span>${escapeHtml(item.taskName)}</div>
+        ${freshness}
+      </div>
       <div class="meta">${fmtDate(item.timestamp)}</div>
       <div>${savedLabel}</div>
     `;
@@ -472,21 +719,27 @@ function refreshUrlHint() {
     const urlValue = urlInput.value.trim();
     if (!urlValue) {
         urlInput.classList.remove("input-invalid");
-        urlHint.textContent = "URL must start with http:// or https://";
+        urlInput.classList.remove("input-valid");
+        urlHint.textContent = "Paste the page you want to watch. Use an http:// or https:// address.";
         urlHint.classList.remove("invalid");
+        urlHint.classList.remove("is-positive");
         return;
     }
 
     if (isHttpUrl(urlValue)) {
         urlInput.classList.remove("input-invalid");
-        urlHint.textContent = "Looks good.";
+        urlInput.classList.add("input-valid");
+        urlHint.textContent = "Looks good. The task name and output folder can follow from this.";
         urlHint.classList.remove("invalid");
+        urlHint.classList.add("is-positive");
         return;
     }
 
     urlInput.classList.add("input-invalid");
+    urlInput.classList.remove("input-valid");
     urlHint.textContent = "Invalid URL. Use an http:// or https:// address.";
     urlHint.classList.add("invalid");
+    urlHint.classList.remove("is-positive");
 }
 
 function maybeAutoFillNameFromUrl() {
@@ -501,7 +754,7 @@ function maybeAutoFillNameFromUrl() {
         const parsed = new URL(urlValue);
         nameInput.value = parsed.hostname.replace(/^www\./, "");
     } catch {
-        // Ignore parser errors; live hint already covers invalid URLs.
+        // Ignore parser errors; the live hint already covers invalid URLs.
     }
 }
 
@@ -517,16 +770,16 @@ function syncDrawerState() {
     document.body.classList.toggle("drawer-open", state.isTaskDrawerOpen);
     openTaskDrawerBtn.setAttribute("aria-expanded", state.isTaskDrawerOpen ? "true" : "false");
     taskDrawer.setAttribute("aria-hidden", state.isTaskDrawerOpen ? "false" : "true");
-    taskDrawerBackdrop.hidden = !state.isTaskDrawerOpen;
+    taskDrawerBackdrop.hidden = false;
+    taskDrawerBackdrop.setAttribute("aria-hidden", state.isTaskDrawerOpen ? "false" : "true");
 }
 
 function openTaskDrawer({ editing = false } = {}) {
-    state.isTaskDrawerOpen = true;
-    syncDrawerState();
     if (!editing) {
-        // Start create flow from a clean form every time.
         resetForm();
     }
+    state.isTaskDrawerOpen = true;
+    syncDrawerState();
     window.requestAnimationFrame(() => {
         nameInput.focus();
     });
@@ -550,6 +803,7 @@ function resetForm() {
     formTitle.textContent = "Create Task";
     submitTaskBtn.textContent = "Create Task";
     cancelEditBtn.hidden = true;
+    setDrawerGuidance(false);
     form.reset();
     intervalInput.value = "60";
     waitLoadInput.value = "load";
@@ -569,6 +823,7 @@ function fillForm(task) {
     formTitle.textContent = "Edit Task";
     submitTaskBtn.textContent = "Save Task";
     cancelEditBtn.hidden = false;
+    setDrawerGuidance(true);
     nameInput.value = task.name;
     urlInput.value = task.url;
     intervalInput.value = `${task.intervalSec}`;
@@ -582,6 +837,36 @@ function fillForm(task) {
     outputDirInput.value = task.outputDir;
     enabledInput.checked = task.enabled;
     refreshUrlHint();
+}
+
+function announceNewChanges(newChanges) {
+    if (newChanges.length === 0) {
+        return;
+    }
+
+    if (!state.hasCelebratedFirstChange) {
+        state.hasCelebratedFirstChange = true;
+        showToast("A saved diff just arrived. Open Recent Changes to inspect the report.", {
+            title: "First signal captured",
+            tone: "success",
+            emphasis: "strong",
+            duration: 3600,
+        });
+        return;
+    }
+
+    if (newChanges.length === 1) {
+        showToast("A fresh diff report is ready in Recent Changes.", {
+            title: "New change saved",
+            tone: "success",
+        });
+        return;
+    }
+
+    showToast(`${newChanges.length} fresh diff reports are ready in Recent Changes.`, {
+        title: "New changes saved",
+        tone: "success",
+    });
 }
 
 async function applyRuntimeChanges() {
@@ -609,7 +894,10 @@ async function applyRuntimeChanges() {
     if (!launchChanged && !legacyChanged && !maxConcurrencyChanged && !userAgentChanged && !acceptLanguageChanged) {
         state.runtimeDirty = false;
         renderEngine();
-        showToast("Runtime unchanged.");
+        showToast("There are no runtime changes to apply right now.", {
+            title: "No runtime changes",
+            tone: "info",
+        });
         return;
     }
 
@@ -626,7 +914,10 @@ async function applyRuntimeChanges() {
     if (state.engine.mode !== "attach") {
         payload.launchHeadless = nextHeadless;
         if (!Number.isFinite(nextMaxConcurrency) || nextMaxConcurrency <= 0) {
-            showToast("Max Concurrency must be a positive number");
+            showToast("Max Concurrency must be a positive number.", {
+                title: "Invalid runtime value",
+                tone: "error",
+            });
             return;
         }
         if (maxConcurrencyChanged) {
@@ -649,7 +940,10 @@ async function applyRuntimeChanges() {
     if (result?.state) {
         state.engine = result.state;
     }
-    showToast("Runtime updated");
+    showToast("The updated runtime settings are active for the next checks.", {
+        title: "Runtime updated",
+        tone: "success",
+    });
     await refresh();
 }
 
@@ -680,13 +974,19 @@ async function handleTableAction(event) {
             if (state.editingTaskId === id) {
                 resetForm();
             }
-            showToast("Task deleted");
+            showToast("This monitor has been removed from the active list.", {
+                title: "Task deleted",
+                tone: "info",
+            });
             await refresh();
             return;
         }
         if (action === "unblock") {
             await request(`/api/tasks/${encodeURIComponent(id)}/unblock`, { method: "POST" });
-            showToast("Task unblocked");
+            showToast("The monitor can retry on its next scheduled pass.", {
+                title: "Task unblocked",
+                tone: "success",
+            });
             await refresh();
             return;
         }
@@ -696,39 +996,75 @@ async function handleTableAction(event) {
                 body: JSON.stringify({ enabled: target.checked }),
             });
             await refresh();
-            return;
         }
     } catch (error) {
         if (state.editingTaskId && String(error.message || error).includes("not found")) {
             resetForm();
         }
-        showToast(error.message || String(error), 3500);
+        showErrorToast(error);
     }
 }
 
 async function refresh() {
     try {
+        const previousTaskCount = state.uiTasks.length;
+        const previousEngineRunning = Boolean(state.engine?.running);
+        const previousChangeKeys = new Set(state.changes.map((item) => changeKey(item)));
+        const wasHydrated = state.hasHydrated;
+
         const [engine, taskData, changeData] = await Promise.all([
             request("/api/state"),
             request("/api/tasks"),
             request("/api/changes?limit=30"),
         ]);
+
+        const nextUiTasks = taskData.uiTasks || [];
+        const nextChanges = changeData.changes || [];
+        const newChanges = wasHydrated
+            ? nextChanges.filter((item) => !previousChangeKeys.has(changeKey(item)))
+            : [];
+
         state.engine = engine;
-        state.uiTasks = taskData.uiTasks || [];
-        if (state.editingTaskId && !state.uiTasks.some((task) => task.id === state.editingTaskId)) {
-            resetForm();
-            showToast("Edited task no longer exists. Switched back to Create mode.", 3000);
-        }
+        state.uiTasks = nextUiTasks;
         state.legacyTasks = taskData.legacyTasks || [];
         state.statuses = new Map((taskData.statuses || []).map((item) => [item.id, item]));
-        state.changes = changeData.changes || [];
+        state.changes = nextChanges;
+        state.newChangeKeys = new Set(newChanges.map((item) => changeKey(item)));
+
+        if (!state.hasHydrated) {
+            state.hasHydrated = true;
+            state.hasCelebratedFirstTask = nextUiTasks.length > 0;
+        }
+
+        if (state.editingTaskId && !state.uiTasks.some((task) => task.id === state.editingTaskId)) {
+            resetForm();
+            showToast("The edited task no longer exists, so the drawer has returned to create mode.", {
+                title: "Edit session reset",
+                tone: "info",
+                duration: 3000,
+            });
+        }
+
         renderEngine();
         renderUiTasks();
         renderLegacyTasks();
         renderChanges();
         updateCountdownLabels();
+
+        if (wasHydrated && previousTaskCount !== nextUiTasks.length) {
+            nudgeElement(uiTaskCount, { scale: 1.05, y: -2, duration: 260 });
+        }
+
+        if (wasHydrated && previousEngineRunning !== Boolean(engine.running)) {
+            const engineStatus = document.querySelector("#engineStatus");
+            nudgeElement(engineStatus, { scale: 1.04, y: -1, duration: 280 });
+        }
+
+        if (newChanges.length > 0) {
+            announceNewChanges(newChanges);
+        }
     } catch (error) {
-        showToast(error.message || String(error), 4000);
+        showErrorToast(error);
     }
 }
 
@@ -738,9 +1074,15 @@ async function onFormSubmit(event) {
     const waitTimeoutRaw = waitTimeoutInput.value.trim();
     const waitTimeoutSec = waitTimeoutRaw ? Number(waitTimeoutRaw) : 0;
     if (!Number.isFinite(waitTimeoutSec) || waitTimeoutSec < 0) {
-        showToast("Extra Wait must be a number greater than or equal to 0");
+        showToast("Extra Wait must be a number greater than or equal to 0.", {
+            title: "Invalid task value",
+            tone: "error",
+        });
         return;
     }
+
+    const isEditing = Boolean(state.editingTaskId);
+    const shouldCelebrateFirstTask = !isEditing && !state.hasCelebratedFirstTask && state.uiTasks.length === 0;
 
     const payload = {
         name: nameInput.value.trim(),
@@ -758,19 +1100,37 @@ async function onFormSubmit(event) {
     };
 
     try {
-        if (state.editingTaskId) {
+        if (isEditing) {
             await request(`/api/tasks/${encodeURIComponent(state.editingTaskId)}`, {
                 method: "PUT",
                 body: JSON.stringify(payload),
             });
-            showToast("Task updated");
+            showToast("The updated settings will apply on the next check.", {
+                title: "Task updated",
+                tone: "success",
+            });
         } else {
             await request("/api/tasks", {
                 method: "POST",
                 body: JSON.stringify(payload),
             });
-            showToast("Task created");
+
+            if (shouldCelebrateFirstTask) {
+                state.hasCelebratedFirstTask = true;
+                showToast("The first run will capture a baseline and start the watch.", {
+                    title: "First monitor ready",
+                    tone: "success",
+                    emphasis: "strong",
+                    duration: 3400,
+                });
+            } else {
+                showToast("This monitor will join the next scheduled cycle.", {
+                    title: "Task created",
+                    tone: "success",
+                });
+            }
         }
+
         resetForm();
         await refresh();
         closeTaskDrawer({ resetForm: false });
@@ -778,7 +1138,7 @@ async function onFormSubmit(event) {
         if (state.editingTaskId && String(error.message || error).includes("not found")) {
             resetForm();
         }
-        showToast(error.message || String(error), 3500);
+        showErrorToast(error);
     }
 }
 
@@ -835,24 +1195,29 @@ applyRuntimeBtn.addEventListener("click", async () => {
     try {
         await applyRuntimeChanges();
     } catch (error) {
-        showToast(error.message || String(error), 3500);
+        showErrorToast(error);
     }
 });
 
 form.addEventListener("submit", onFormSubmit);
+
 openTaskDrawerBtn.addEventListener("click", () => {
     openTaskDrawer({ editing: false });
 });
+
 closeTaskDrawerBtn.addEventListener("click", () => {
     closeTaskDrawer({ resetForm: true });
 });
+
 taskDrawerBackdrop.addEventListener("click", () => {
     closeTaskDrawer({ resetForm: false });
 });
+
 cancelEditBtn.addEventListener("click", () => {
     resetForm();
     closeTaskDrawer({ resetForm: false });
 });
+
 document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && state.isTaskDrawerOpen) {
         closeTaskDrawer({ resetForm: false });
@@ -862,26 +1227,34 @@ document.addEventListener("keydown", (event) => {
 startBtn.addEventListener("click", async () => {
     try {
         await request("/api/engine/start", { method: "POST" });
-        showToast("Monitoring started");
+        showToast("Checks are running. New diffs will appear here as they arrive.", {
+            title: "Monitoring live",
+            tone: "success",
+        });
         await refresh();
     } catch (error) {
-        showToast(error.message || String(error), 3500);
+        showErrorToast(error);
     }
 });
 
 stopBtn.addEventListener("click", async () => {
     try {
         await request("/api/engine/stop", { method: "POST" });
-        showToast("Monitoring stopped");
+        showToast("The current setup stays in place until you start monitoring again.", {
+            title: "Monitoring paused",
+            tone: "info",
+        });
         await refresh();
     } catch (error) {
-        showToast(error.message || String(error), 3500);
+        showErrorToast(error);
     }
 });
 
 resetForm();
 syncDrawerState();
+installButtonRipples();
 void refresh();
+
 setInterval(() => {
     void refresh();
 }, 3000);
