@@ -30,8 +30,9 @@ It periodically opens pages in Chrome, extracts a comparable text snapshot, and 
 
 1. Double-click `run.command` (launch mode).
 2. It installs local deps (`npm ci`) if needed, then builds the project.
-3. Your browser opens the console at `http://127.0.0.1:3210` (or the next available port).
-4. Click `Create Task`, then `Start Monitoring`.
+3. Your browser opens the new command-deck UI at `http://127.0.0.1:3210` (or the next available port).
+4. The previous table-based console is still available at `http://127.0.0.1:3210/classic`.
+5. Click `New Task`, save it, then `Start Monitoring`.
 
 Attach mode: double-click `run-attach.command` (you must start Chrome with remote debugging first, see below).
 

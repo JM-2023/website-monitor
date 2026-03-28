@@ -3,273 +3,374 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Website Monitor Console</title>
+    <title>Website Monitor Command Deck</title>
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
-    <div class="background-grid" aria-hidden="true"></div>
-    <div class="background-glow glow-a"></div>
-    <div class="background-glow glow-b"></div>
+    <div class="mesh" aria-hidden="true"></div>
+    <div class="ambient ambient-a" aria-hidden="true"></div>
+    <div class="ambient ambient-b" aria-hidden="true"></div>
 
     <main class="app-shell">
-      <header class="topbar panel">
-        <div class="topbar-brand">
-          <p class="eyebrow">Local Control Panel</p>
-          <h1>Website Monitor Console</h1>
-        </div>
-        <div class="topbar-actions">
-          <button id="startBtn" class="btn btn-primary">Start Monitoring</button>
-          <button id="stopBtn" class="btn btn-danger">Stop</button>
-        </div>
-      </header>
+      <section class="stage">
+        <article class="stage-card stage-hero">
+          <p class="kicker">Local Watch Surface</p>
+          <h1>Website Monitor Command Deck</h1>
+          <p class="stage-copy">
+            Run the monitor, tune runtime behavior, and inspect fresh diffs from one floating dark console.
+          </p>
 
-      <section class="workspace">
-        <article class="panel task-panel">
-          <div class="panel-header">
-            <div>
-              <h2>Monitor Tasks</h2>
-              <p class="muted">Editable tasks from `config/monitors.json`</p>
+          <div class="hero-grid">
+            <div class="hero-metric">
+              <span>Engine</span>
+              <strong id="metricEngine">Loading...</strong>
             </div>
-            <div class="task-title-actions">
-              <span id="uiTaskCount" class="count-pill">0 tasks</span>
-              <button
-                id="openTaskDrawerBtn"
-                class="btn btn-secondary"
-                type="button"
-                aria-controls="taskDrawer"
-                aria-expanded="false"
-              >
-                Create Task
-              </button>
+            <div class="hero-metric">
+              <span>Focus Risk</span>
+              <strong id="metricRisk">-</strong>
             </div>
-          </div>
-
-          <div class="toolbar">
-            <label class="toolbar-field">
-              Search
-              <input id="taskSearchInput" placeholder="Search by name or URL" />
-            </label>
-            <label class="toolbar-field">
-              Filter
-              <select id="taskFilterSelect">
-                <option value="all">All tasks</option>
-                <option value="enabled">Enabled only</option>
-                <option value="disabled">Disabled only</option>
-              </select>
-            </label>
-          </div>
-
-          <div class="table-wrap table-wrap-fill">
-            <table class="table" id="uiTaskTable">
-              <thead>
-                <tr>
-                  <th>Enabled</th>
-                  <th>Name</th>
-                  <th>URL</th>
-                  <th>Interval</th>
-                  <th>Wait</th>
-                  <th>Next Check</th>
-                  <th>Output</th>
-                  <th>Last Check</th>
-                  <th>Last Change</th>
-                  <th>Last Error</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody></tbody>
-            </table>
+            <div class="hero-metric">
+              <span>Total Tasks</span>
+              <strong id="metricTasks">0</strong>
+            </div>
+            <div class="hero-metric">
+              <span>Latest Diff</span>
+              <strong id="metricFreshness">Awaiting first diff</strong>
+            </div>
           </div>
         </article>
 
-        <aside class="right-rail">
-          <article class="panel runtime-panel">
-            <div class="panel-header compact">
-              <h2>Runtime & Status</h2>
+        <div class="stage-grid">
+          <article class="stage-card">
+            <div class="section-head">
+              <div>
+                <p class="section-label">Queue Preview</p>
+                <h2>Watch Queue</h2>
+              </div>
+              <button id="composeFromStageBtn" class="chip-btn" type="button">New Monitor</button>
             </div>
-
-            <dl class="status-list">
-              <div class="status-item">
-                <dt>Engine</dt>
-                <dd id="engineStatus" class="status-value">Loading...</dd>
-              </div>
-              <div class="status-item">
-                <dt>Mode</dt>
-                <dd id="modeStatus" class="status-value">-</dd>
-              </div>
-              <div class="status-item">
-                <dt>Control URL</dt>
-                <dd id="controlUrl" class="status-value mono">-</dd>
-              </div>
-              <div class="status-item">
-                <dt>Task Counts</dt>
-                <dd id="taskCounts" class="status-value">-</dd>
-              </div>
-            </dl>
-
-            <div class="runtime-controls">
-              <label class="checkbox-row">
-                <input id="headlessToggle" type="checkbox" />
-                Headless (No Window)
-              </label>
-              <label class="checkbox-row">
-                <input id="includeLegacyToggle" type="checkbox" />
-                Include Legacy Tasks
-              </label>
-              <label>
-                Max Concurrency
-                <input id="maxConcurrencyInput" type="number" min="1" step="1" />
-              </label>
-              <label>
-                User-Agent (optional)
-                <input id="userAgentInput" placeholder="Auto (headless: strip HeadlessChrome)" />
-              </label>
-              <label>
-                Accept-Language (optional)
-                <input id="acceptLanguageInput" placeholder="Auto (Chrome default)" />
-              </label>
-              <button id="applyRuntimeBtn" class="btn btn-secondary" type="button">Apply Runtime</button>
-            </div>
-
-            <p id="configLoadHint" class="inline-hint invalid" hidden></p>
-            <p id="runtimeHint" class="inline-hint">Loading runtime settings...</p>
-            <p id="focusRiskHint" class="inline-hint">Focus risk: -</p>
+            <div id="stageTaskPreview" class="preview-list"></div>
           </article>
 
-          <article class="panel changes-panel">
-            <div class="panel-header compact">
+          <article class="stage-card">
+            <div class="section-head">
               <div>
-                <h2>Recent Changes</h2>
-                <p class="muted">Latest files saved by the monitor</p>
+                <p class="section-label">Signal Feed</p>
+                <h2>Recent Diffs</h2>
               </div>
+              <a class="chip-link" href="/outputs/" target="_blank" rel="noreferrer">Open outputs</a>
             </div>
-            <ul id="changeList" class="change-list"></ul>
+            <div id="stageChangePreview" class="signal-list"></div>
           </article>
-
-          <details id="legacyDetails" class="panel legacy-panel">
-            <summary class="legacy-summary">
-              <div>
-                <h2>Legacy Tasks</h2>
-                <p class="muted">Read-only tasks loaded from `TASKS_FILE`</p>
-              </div>
-              <span class="legacy-summary-icon" aria-hidden="true"></span>
-            </summary>
-            <div class="legacy-content">
-              <div class="table-wrap legacy-table-wrap">
-                <table class="table" id="legacyTable">
-                  <thead>
-                    <tr>
-                      <th>Name</th>
-                      <th>URL</th>
-                      <th>Interval</th>
-                      <th>Next Check</th>
-                      <th>Output</th>
-                      <th>Last Check</th>
-                      <th>Last Error</th>
-                    </tr>
-                  </thead>
-                  <tbody></tbody>
-                </table>
-              </div>
-            </div>
-          </details>
-        </aside>
+        </div>
       </section>
 
-      <aside id="taskDrawerBackdrop" class="drawer-backdrop" hidden></aside>
-      <aside
-        id="taskDrawer"
-        class="task-drawer"
-        role="dialog"
-        aria-modal="true"
-        aria-hidden="true"
-        aria-labelledby="formTitle"
-        tabindex="-1"
-      >
-        <div class="task-drawer-header">
-          <div>
-            <h2 id="formTitle">Create Task</h2>
-            <p class="muted">Add a URL and save. Changes apply immediately to next runs.</p>
+      <aside id="commandPanel" class="command-panel" data-collapsed="false">
+        <header class="panel-header">
+          <button id="panelSummaryBtn" class="panel-summary" type="button" aria-expanded="true">
+            <span id="panelStateDot" class="state-dot" aria-hidden="true"></span>
+            <span class="summary-copy">
+              <span class="summary-title">Website Monitor</span>
+              <span id="panelSummaryLine" class="summary-line">Loading control surface...</span>
+            </span>
+          </button>
+
+          <div class="panel-controls">
+            <a class="ui-link ui-link-active" href="/">New</a>
+            <a class="ui-link" href="/classic/">Classic</a>
+            <button id="collapseBtn" class="icon-btn" type="button" aria-label="Collapse command panel">−</button>
           </div>
-          <button id="closeTaskDrawerBtn" class="btn btn-secondary" type="button" aria-label="Close task form">Close</button>
+        </header>
+
+        <div id="panelProgress" class="panel-progress" aria-hidden="true">
+          <span></span>
         </div>
 
-        <div class="task-drawer-body">
-          <div class="drawer-guidance">
-            <p id="formIntroEyebrow" class="drawer-kicker">Steady first pass</p>
-            <p id="formIntro" class="drawer-lead">
-              Start with one stable page. You can tighten selectors after the first baseline is saved.
-            </p>
+        <nav class="tab-bar" aria-label="Command tabs">
+          <button class="tab-btn is-active" type="button" data-tab-button="overview">
+            <span class="tab-short">OV</span>
+            <span class="tab-label">Overview</span>
+          </button>
+          <button class="tab-btn" type="button" data-tab-button="compose">
+            <span class="tab-short">CP</span>
+            <span class="tab-label">Compose</span>
+          </button>
+          <button class="tab-btn" type="button" data-tab-button="runtime">
+            <span class="tab-short">RT</span>
+            <span class="tab-label">Runtime</span>
+          </button>
+          <button class="tab-btn" type="button" data-tab-button="signals">
+            <span class="tab-short">SG</span>
+            <span class="tab-label">Signals</span>
+          </button>
+        </nav>
+
+        <section id="inlineFeedback" class="inline-feedback" hidden>
+          <div class="inline-feedback-copy">
+            <p id="feedbackTitle" class="inline-feedback-title">Update</p>
+            <p id="feedbackMessage" class="inline-feedback-message"></p>
           </div>
-          <form id="taskForm" class="form">
-            <label>
-              Name
-              <input id="taskName" name="name" required placeholder="News Feed" />
-            </label>
-            <label>
-              URL
-              <input id="taskUrl" name="url" required placeholder="https://example.com/page" />
-            </label>
-            <p id="urlHint" class="inline-hint">URL must start with http:// or https://</p>
-            <label>
-              Interval (seconds)
-              <input id="taskInterval" name="intervalSec" type="number" min="1" step="1" value="60" required />
-            </label>
-            <label>
-              Wait Load
-              <select id="taskWaitLoad" name="waitLoad">
-                <option value="load">load (balanced, default)</option>
-                <option value="domcontentloaded">domcontentloaded (fastest, may miss dynamic content)</option>
-                <option value="networkidle2">networkidle2 (wait for most requests to settle)</option>
-                <option value="networkidle0">networkidle0 (strictest, can timeout on busy pages)</option>
-              </select>
-            </label>
-            <p class="inline-hint">Use `waitSelector` for dynamic pages when `waitLoad` alone is not enough.</p>
-            <label>
-              Wait Selector (optional)
-              <input id="taskWaitSelector" name="waitSelector" placeholder="#main-content" />
-            </label>
-            <label>
-              Extra Wait (sec)
-              <input id="taskWaitTimeout" name="waitTimeoutSec" type="number" min="0" step="0.5" value="0" />
-            </label>
-            <label>
-              Compare Selector (optional)
-              <input id="taskCompareSelector" name="compareSelector" placeholder="#main-content" />
-            </label>
-            <label>
-              Required Keyword (optional)
-              <input id="taskRequiredKeyword" name="requiredKeyword" placeholder="breaking news" />
-            </label>
-            <p class="inline-hint">Only save when text changed and this keyword appears (case-insensitive).</p>
-            <label>
-              Ignore Selectors (optional, one per line)
-              <textarea id="taskIgnoreSelectors" name="ignoreSelectors" rows="4" placeholder=".ad\n.timestamp"></textarea>
-            </label>
-            <label>
-              Ignore Text Regex (optional, flags fixed to gu)
-              <input id="taskIgnoreTextRegex" name="ignoreTextRegex" placeholder="\\b\\d{4}-\\d{2}-\\d{2}\\b" />
-            </label>
-            <label>
-              Output Directory
-              <input id="taskOutputDir" name="outputDir" placeholder="outputs/news-feed" />
-            </label>
-            <label class="checkbox-row">
-              <input id="taskEnabled" name="enabled" type="checkbox" checked />
-              Enabled
-            </label>
-            <div class="actions">
-              <button type="submit" class="btn btn-primary" id="submitTaskBtn">Create Task</button>
-              <button type="button" class="btn btn-secondary" id="cancelEditBtn" hidden>Cancel Edit</button>
+          <button id="feedbackCloseBtn" class="icon-btn feedback-close" type="button" aria-label="Dismiss feedback">
+            ×
+          </button>
+        </section>
+
+        <div class="panel-body">
+          <section class="pane is-active" data-pane="overview">
+            <div class="pane-section">
+              <div class="section-head dense">
+                <div>
+                  <p class="section-label">Engine Control</p>
+                  <h2>Watch Queue</h2>
+                </div>
+                <span id="engineBadge" class="metric-chip metric-chip-live">Idle</span>
+              </div>
+
+              <div class="button-row">
+                <button id="startBtn" class="btn btn-primary" type="button">Start Monitoring</button>
+                <button id="stopBtn" class="btn btn-danger" type="button">Stop</button>
+                <button id="newTaskBtn" class="btn btn-ghost" type="button">New Task</button>
+              </div>
+
+              <p id="overviewStatusHint" class="micro-copy">Loading engine state...</p>
             </div>
-          </form>
-        </div>
-      </aside>
 
-      <aside id="toast" class="toast" hidden aria-live="polite" aria-atomic="true" role="status">
-        <div class="toast-mark" aria-hidden="true"></div>
-        <div class="toast-copy">
-          <p id="toastTitle" class="toast-title">Update</p>
-          <p id="toastMessage" class="toast-message"></p>
+            <div class="pane-section">
+              <div class="field-grid field-grid-tight">
+                <label class="field">
+                  <span class="field-label">Search</span>
+                  <input id="taskSearchInput" type="text" placeholder="Filter by name or URL" />
+                </label>
+
+                <label class="field">
+                  <span class="field-label">Filter</span>
+                  <select id="taskFilterSelect">
+                    <option value="all">All tasks</option>
+                    <option value="enabled">Enabled only</option>
+                    <option value="disabled">Disabled only</option>
+                  </select>
+                </label>
+              </div>
+
+              <div class="section-meta">
+                <span id="uiTaskCount" class="metric-chip">0 tasks</span>
+                <a class="mini-link" href="/outputs/" target="_blank" rel="noreferrer">Outputs</a>
+              </div>
+            </div>
+
+            <div id="taskList" class="task-stack"></div>
+          </section>
+
+          <section class="pane" data-pane="compose">
+            <div class="pane-section">
+              <div class="section-head dense">
+                <div>
+                  <p id="composeEyebrow" class="section-label">Steady first pass</p>
+                  <h2 id="formTitle">Create Monitor</h2>
+                </div>
+                <button id="resetFormBtn" class="btn btn-ghost" type="button">Reset</button>
+              </div>
+              <p id="formIntro" class="micro-copy">
+                Start with one stable page. You can tighten selectors after the first baseline is saved.
+              </p>
+            </div>
+
+            <form id="taskForm" class="form-stack">
+              <label class="field">
+                <span class="field-label">Name</span>
+                <input id="taskName" name="name" required placeholder="News Feed" />
+              </label>
+
+              <label class="field">
+                <span class="field-label">URL</span>
+                <input id="taskUrl" name="url" required placeholder="https://example.com/page" />
+              </label>
+
+              <p id="urlHint" class="micro-copy">Paste an http:// or https:// page URL.</p>
+
+              <div class="field-grid">
+                <label class="field">
+                  <span class="field-label">Interval (seconds)</span>
+                  <input id="taskInterval" name="intervalSec" type="number" min="1" step="1" value="60" required />
+                </label>
+
+                <label class="field">
+                  <span class="field-label">Wait Load</span>
+                  <select id="taskWaitLoad" name="waitLoad">
+                    <option value="load">load</option>
+                    <option value="domcontentloaded">domcontentloaded</option>
+                    <option value="networkidle2">networkidle2</option>
+                    <option value="networkidle0">networkidle0</option>
+                  </select>
+                </label>
+              </div>
+
+              <label class="field">
+                <span class="field-label">Wait Selector</span>
+                <input id="taskWaitSelector" name="waitSelector" placeholder="#main-content" />
+              </label>
+
+              <div class="field-grid">
+                <label class="field">
+                  <span class="field-label">Extra Wait (sec)</span>
+                  <input id="taskWaitTimeout" name="waitTimeoutSec" type="number" min="0" step="0.5" value="0" />
+                </label>
+
+                <label class="field">
+                  <span class="field-label">Compare Selector</span>
+                  <input id="taskCompareSelector" name="compareSelector" placeholder="#main-content" />
+                </label>
+              </div>
+
+              <label class="field">
+                <span class="field-label">Required Keyword</span>
+                <input id="taskRequiredKeyword" name="requiredKeyword" placeholder="breaking news" />
+              </label>
+
+              <label class="field">
+                <span class="field-label">Ignore Selectors</span>
+                <textarea id="taskIgnoreSelectors" name="ignoreSelectors" rows="4" placeholder=".ad&#10;.timestamp"></textarea>
+              </label>
+
+              <label class="field">
+                <span class="field-label">Ignore Text Regex</span>
+                <input id="taskIgnoreTextRegex" name="ignoreTextRegex" placeholder="\\b\\d{4}-\\d{2}-\\d{2}\\b" />
+              </label>
+
+              <label class="field">
+                <span class="field-label">Output Directory</span>
+                <input id="taskOutputDir" name="outputDir" placeholder="outputs/news-feed" />
+              </label>
+
+              <label class="checkbox-field">
+                <input id="taskEnabled" name="enabled" type="checkbox" checked />
+                <span>Enabled</span>
+              </label>
+
+              <div class="button-row">
+                <button id="submitTaskBtn" class="btn btn-primary" type="submit">Create Monitor</button>
+                <button id="cancelEditBtn" class="btn btn-ghost" type="button" hidden>Cancel Edit</button>
+              </div>
+            </form>
+          </section>
+
+          <section class="pane" data-pane="runtime">
+            <div class="pane-section">
+              <div class="section-head dense">
+                <div>
+                  <p class="section-label">Runtime</p>
+                  <h2>Mode & Risk</h2>
+                </div>
+                <span id="runtimeDirtyBadge" class="metric-chip">Synced</span>
+              </div>
+
+              <div class="status-grid">
+                <div class="status-row">
+                  <span>Engine</span>
+                  <strong id="engineStatus">Loading...</strong>
+                </div>
+                <div class="status-row">
+                  <span>Mode</span>
+                  <strong id="modeStatus">-</strong>
+                </div>
+                <div class="status-row">
+                  <span>Focus</span>
+                  <strong id="riskStatus">-</strong>
+                </div>
+                <div class="status-row">
+                  <span>Control URL</span>
+                  <strong id="controlUrl" class="mono">-</strong>
+                </div>
+                <div class="status-row">
+                  <span>Task Counts</span>
+                  <strong id="taskCounts">-</strong>
+                </div>
+                <div class="status-row">
+                  <span>Latest Diff</span>
+                  <strong id="latestDiffStatus">-</strong>
+                </div>
+              </div>
+
+              <p id="runtimeHint" class="micro-copy">Loading runtime settings...</p>
+              <p id="focusRiskHint" class="micro-copy">Focus risk: -</p>
+              <p id="configLoadHint" class="micro-copy micro-copy-danger" hidden></p>
+            </div>
+
+            <div class="pane-section">
+              <div class="field-grid">
+                <label class="checkbox-field">
+                  <input id="headlessToggle" type="checkbox" />
+                  <span>Headless (no window)</span>
+                </label>
+
+                <label class="checkbox-field">
+                  <input id="includeLegacyToggle" type="checkbox" />
+                  <span>Include legacy tasks</span>
+                </label>
+
+                <label class="field">
+                  <span class="field-label">Max Concurrency</span>
+                  <input id="maxConcurrencyInput" type="number" min="1" step="1" />
+                </label>
+
+                <label class="field">
+                  <span class="field-label">User-Agent</span>
+                  <input id="userAgentInput" placeholder="Auto (headless strips HeadlessChrome)" />
+                </label>
+
+                <label class="field field-span-2">
+                  <span class="field-label">Accept-Language</span>
+                  <input id="acceptLanguageInput" placeholder="Auto (Chrome default)" />
+                </label>
+              </div>
+
+              <div id="runtimeConfirm" class="confirm-card" hidden>
+                <p class="confirm-copy">Applying runtime while monitoring is live will briefly restart checks.</p>
+                <div class="button-row">
+                  <button id="runtimeConfirmBtn" class="btn btn-danger" type="button">Apply & Restart</button>
+                  <button id="runtimeCancelBtn" class="btn btn-ghost" type="button">Cancel</button>
+                </div>
+              </div>
+
+              <div class="button-row">
+                <button id="applyRuntimeBtn" class="btn btn-primary" type="button">Apply Runtime</button>
+              </div>
+            </div>
+
+            <div class="pane-section">
+              <div class="section-head dense">
+                <div>
+                  <p class="section-label">Legacy</p>
+                  <h2>Attached Legacy Tasks</h2>
+                </div>
+                <span id="legacyCount" class="metric-chip">0</span>
+              </div>
+              <div id="legacyList" class="legacy-stack"></div>
+            </div>
+          </section>
+
+          <section class="pane" data-pane="signals">
+            <div class="pane-section">
+              <div class="section-head dense">
+                <div>
+                  <p class="section-label">Attention</p>
+                  <h2>Tasks Needing Review</h2>
+                </div>
+              </div>
+              <div id="attentionList" class="attention-list"></div>
+            </div>
+
+            <div class="pane-section">
+              <div class="section-head dense">
+                <div>
+                  <p class="section-label">Recent Changes</p>
+                  <h2>Signal Feed</h2>
+                </div>
+                <span id="changeCount" class="metric-chip">0</span>
+              </div>
+              <div id="changeList" class="signal-stack"></div>
+            </div>
+          </section>
         </div>
       </aside>
     </main>

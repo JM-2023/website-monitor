@@ -4,6 +4,9 @@ set -u
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR" || exit 1
 
+echo "[info] Launching Website Monitor..."
+echo "[info] The new Web UI opens by default. Classic UI stays available at /classic."
+
 if ! command -v node >/dev/null 2>&1; then
   echo "[error] Node.js is not installed or not in PATH."
   echo "Install Node.js, then run again."

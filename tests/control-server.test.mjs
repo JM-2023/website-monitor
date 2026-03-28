@@ -92,6 +92,16 @@ test("Control server falls back from occupied port and validates task URL", asyn
         assert.equal(stateBody.userAgent, undefined);
         assert.equal(stateBody.acceptLanguage, undefined);
 
+        const newUiResponse = await fetch(`${handle.url}/`);
+        assert.equal(newUiResponse.ok, true);
+        const newUiHtml = await newUiResponse.text();
+        assert.match(newUiHtml, /Website Monitor Command Deck/);
+
+        const classicUiResponse = await fetch(`${handle.url}/classic/`);
+        assert.equal(classicUiResponse.ok, true);
+        const classicUiHtml = await classicUiResponse.text();
+        assert.match(classicUiHtml, /Website Monitor Console \(Classic\)/);
+
         const outputsFile = await fetch(`${handle.url}/outputs/hello.txt`);
         assert.equal(outputsFile.ok, true);
         assert.equal(await outputsFile.text(), "hello outputs");

@@ -305,6 +305,7 @@ export async function startControlServer(options: ControlServerOptions = {}): Pr
     const baseDir = options.baseDir ? path.resolve(options.baseDir) : process.cwd();
     const host = options.host ?? DEFAULT_HOST;
     const uiDir = options.uiDir ? path.resolve(options.uiDir) : path.resolve(baseDir, "ui");
+    const classicUiDir = path.resolve(path.dirname(uiDir), "ui-classic");
     const configPath = options.configPath
         ? path.resolve(options.configPath)
         : path.resolve(baseDir, "config/monitors.json");
@@ -579,6 +580,15 @@ export async function startControlServer(options: ControlServerOptions = {}): Pr
                 return;
             }
 
+            if (pathname === "/classic" || pathname === "/classic/" || pathname.startsWith("/classic/")) {
+                const classicPath =
+                    pathname === "/classic" || pathname === "/classic/"
+                        ? "/index.html"
+                        : pathname.slice("/classic".length) || "/index.html";
+                await serveStatic(res, classicUiDir, classicPath);
+                return;
+            }
+
             await serveStatic(res, uiDir, pathname);
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
@@ -618,6 +628,7 @@ if (isMainModule) {
     (async () => {
         const handle = await startControlServer();
         console.log(`Control server running at ${handle.url}`);
+        console.log(`Classic UI available at ${handle.url}/classic`);
 
         const shutdown = async () => {
             await handle.close();

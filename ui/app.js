@@ -4,66 +4,107 @@ const state = {
     legacyTasks: [],
     statuses: new Map(),
     changes: [],
-    editingTaskId: null,
     taskSearch: "",
     taskFilter: "all",
+    activeTab: "overview",
+    collapsed: false,
+    editingTaskId: null,
     outputDirTouched: false,
     runtimeDirty: false,
-    isTaskDrawerOpen: false,
-    toastHideTimer: 0,
-    toastResetTimer: 0,
     hasHydrated: false,
-    hasCelebratedFirstTask: false,
-    hasCelebratedFirstChange: false,
     newChangeKeys: new Set(),
-    lastRuntimeDirty: false,
+    confirmDeleteTaskId: null,
+    confirmRuntimeApply: false,
+    noticeHideTimer: 0,
+    pending: {
+        refresh: false,
+        start: false,
+        stop: false,
+        save: false,
+        applyRuntime: false,
+        deleteTaskIds: new Set(),
+        unblockTaskIds: new Set(),
+        toggleTaskIds: new Set(),
+    },
 };
 
-const startBtn = document.querySelector("#startBtn");
-const stopBtn = document.querySelector("#stopBtn");
-const form = document.querySelector("#taskForm");
-const cancelEditBtn = document.querySelector("#cancelEditBtn");
-const submitTaskBtn = document.querySelector("#submitTaskBtn");
-const formTitle = document.querySelector("#formTitle");
-const formIntroEyebrow = document.querySelector("#formIntroEyebrow");
-const formIntro = document.querySelector("#formIntro");
-const taskSearchInput = document.querySelector("#taskSearchInput");
-const taskFilterSelect = document.querySelector("#taskFilterSelect");
-const uiTaskCount = document.querySelector("#uiTaskCount");
-const urlHint = document.querySelector("#urlHint");
-const headlessToggle = document.querySelector("#headlessToggle");
-const includeLegacyToggle = document.querySelector("#includeLegacyToggle");
-const maxConcurrencyInput = document.querySelector("#maxConcurrencyInput");
-const userAgentInput = document.querySelector("#userAgentInput");
-const acceptLanguageInput = document.querySelector("#acceptLanguageInput");
-const applyRuntimeBtn = document.querySelector("#applyRuntimeBtn");
-const configLoadHint = document.querySelector("#configLoadHint");
-const runtimeHint = document.querySelector("#runtimeHint");
-const focusRiskHint = document.querySelector("#focusRiskHint");
-const openTaskDrawerBtn = document.querySelector("#openTaskDrawerBtn");
-const closeTaskDrawerBtn = document.querySelector("#closeTaskDrawerBtn");
-const taskDrawer = document.querySelector("#taskDrawer");
-const taskDrawerBackdrop = document.querySelector("#taskDrawerBackdrop");
-const toast = document.querySelector("#toast");
-const toastTitle = document.querySelector("#toastTitle");
-const toastMessage = document.querySelector("#toastMessage");
-const reducedMotionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
-
-const nameInput = document.querySelector("#taskName");
-const urlInput = document.querySelector("#taskUrl");
-const intervalInput = document.querySelector("#taskInterval");
-const waitLoadInput = document.querySelector("#taskWaitLoad");
-const waitSelectorInput = document.querySelector("#taskWaitSelector");
-const waitTimeoutInput = document.querySelector("#taskWaitTimeout");
-const compareSelectorInput = document.querySelector("#taskCompareSelector");
-const requiredKeywordInput = document.querySelector("#taskRequiredKeyword");
-const ignoreSelectorsInput = document.querySelector("#taskIgnoreSelectors");
-const ignoreTextRegexInput = document.querySelector("#taskIgnoreTextRegex");
-const outputDirInput = document.querySelector("#taskOutputDir");
-const enabledInput = document.querySelector("#taskEnabled");
+const refs = {
+    metricEngine: document.querySelector("#metricEngine"),
+    metricRisk: document.querySelector("#metricRisk"),
+    metricTasks: document.querySelector("#metricTasks"),
+    metricFreshness: document.querySelector("#metricFreshness"),
+    composeFromStageBtn: document.querySelector("#composeFromStageBtn"),
+    stageTaskPreview: document.querySelector("#stageTaskPreview"),
+    stageChangePreview: document.querySelector("#stageChangePreview"),
+    commandPanel: document.querySelector("#commandPanel"),
+    panelSummaryBtn: document.querySelector("#panelSummaryBtn"),
+    panelStateDot: document.querySelector("#panelStateDot"),
+    panelSummaryLine: document.querySelector("#panelSummaryLine"),
+    collapseBtn: document.querySelector("#collapseBtn"),
+    panelProgress: document.querySelector("#panelProgress"),
+    tabButtons: Array.from(document.querySelectorAll("[data-tab-button]")),
+    panes: Array.from(document.querySelectorAll("[data-pane]")),
+    inlineFeedback: document.querySelector("#inlineFeedback"),
+    feedbackTitle: document.querySelector("#feedbackTitle"),
+    feedbackMessage: document.querySelector("#feedbackMessage"),
+    feedbackCloseBtn: document.querySelector("#feedbackCloseBtn"),
+    startBtn: document.querySelector("#startBtn"),
+    stopBtn: document.querySelector("#stopBtn"),
+    newTaskBtn: document.querySelector("#newTaskBtn"),
+    engineBadge: document.querySelector("#engineBadge"),
+    overviewStatusHint: document.querySelector("#overviewStatusHint"),
+    taskSearchInput: document.querySelector("#taskSearchInput"),
+    taskFilterSelect: document.querySelector("#taskFilterSelect"),
+    uiTaskCount: document.querySelector("#uiTaskCount"),
+    taskList: document.querySelector("#taskList"),
+    composeEyebrow: document.querySelector("#composeEyebrow"),
+    formTitle: document.querySelector("#formTitle"),
+    resetFormBtn: document.querySelector("#resetFormBtn"),
+    formIntro: document.querySelector("#formIntro"),
+    taskForm: document.querySelector("#taskForm"),
+    nameInput: document.querySelector("#taskName"),
+    urlInput: document.querySelector("#taskUrl"),
+    urlHint: document.querySelector("#urlHint"),
+    intervalInput: document.querySelector("#taskInterval"),
+    waitLoadInput: document.querySelector("#taskWaitLoad"),
+    waitSelectorInput: document.querySelector("#taskWaitSelector"),
+    waitTimeoutInput: document.querySelector("#taskWaitTimeout"),
+    compareSelectorInput: document.querySelector("#taskCompareSelector"),
+    requiredKeywordInput: document.querySelector("#taskRequiredKeyword"),
+    ignoreSelectorsInput: document.querySelector("#taskIgnoreSelectors"),
+    ignoreTextRegexInput: document.querySelector("#taskIgnoreTextRegex"),
+    outputDirInput: document.querySelector("#taskOutputDir"),
+    enabledInput: document.querySelector("#taskEnabled"),
+    submitTaskBtn: document.querySelector("#submitTaskBtn"),
+    cancelEditBtn: document.querySelector("#cancelEditBtn"),
+    runtimeDirtyBadge: document.querySelector("#runtimeDirtyBadge"),
+    engineStatus: document.querySelector("#engineStatus"),
+    modeStatus: document.querySelector("#modeStatus"),
+    riskStatus: document.querySelector("#riskStatus"),
+    controlUrl: document.querySelector("#controlUrl"),
+    taskCounts: document.querySelector("#taskCounts"),
+    latestDiffStatus: document.querySelector("#latestDiffStatus"),
+    runtimeHint: document.querySelector("#runtimeHint"),
+    focusRiskHint: document.querySelector("#focusRiskHint"),
+    configLoadHint: document.querySelector("#configLoadHint"),
+    headlessToggle: document.querySelector("#headlessToggle"),
+    includeLegacyToggle: document.querySelector("#includeLegacyToggle"),
+    maxConcurrencyInput: document.querySelector("#maxConcurrencyInput"),
+    userAgentInput: document.querySelector("#userAgentInput"),
+    acceptLanguageInput: document.querySelector("#acceptLanguageInput"),
+    runtimeConfirm: document.querySelector("#runtimeConfirm"),
+    runtimeConfirmBtn: document.querySelector("#runtimeConfirmBtn"),
+    runtimeCancelBtn: document.querySelector("#runtimeCancelBtn"),
+    applyRuntimeBtn: document.querySelector("#applyRuntimeBtn"),
+    legacyCount: document.querySelector("#legacyCount"),
+    legacyList: document.querySelector("#legacyList"),
+    attentionList: document.querySelector("#attentionList"),
+    changeCount: document.querySelector("#changeCount"),
+    changeList: document.querySelector("#changeList"),
+};
 
 function slugify(input) {
-    return input
+    return String(input || "")
         .toLowerCase()
         .trim()
         .replace(/[^a-z0-9]+/g, "-")
@@ -71,13 +112,31 @@ function slugify(input) {
         .slice(0, 64);
 }
 
+function escapeHtml(input) {
+    return String(input)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+}
+
+function isHttpUrl(value) {
+    try {
+        const parsed = new URL(value);
+        return parsed.protocol === "http:" || parsed.protocol === "https:";
+    } catch {
+        return false;
+    }
+}
+
 function fmtDate(value) {
     if (!value) {
         return "-";
     }
     const date = new Date(value);
-    if (Number.isNaN(+date)) {
-        return value;
+    if (Number.isNaN(date.getTime())) {
+        return String(value);
     }
     return date.toLocaleString();
 }
@@ -86,12 +145,14 @@ function formatDuration(totalSeconds) {
     const seconds = Math.max(0, Math.floor(totalSeconds));
     const minutes = Math.floor(seconds / 60);
     const remainSeconds = seconds % 60;
+
     if (minutes <= 0) {
         return `${remainSeconds}s`;
     }
     if (minutes < 60) {
         return `${minutes}m ${remainSeconds}s`;
     }
+
     const hours = Math.floor(minutes / 60);
     const remainMinutes = minutes % 60;
     return `${hours}h ${remainMinutes}m`;
@@ -113,14 +174,17 @@ function formatNextCheckLabel(nextCheckAt, running, queued, enabled, blocked) {
     if (!nextCheckAt) {
         return "-";
     }
+
     const target = new Date(nextCheckAt);
-    if (Number.isNaN(+target)) {
+    if (Number.isNaN(target.getTime())) {
         return "-";
     }
+
     const remainSeconds = Math.ceil((target.getTime() - Date.now()) / 1000);
     if (remainSeconds <= 0) {
         return "Due now";
     }
+
     return `${formatDuration(remainSeconds)} (${target.toLocaleTimeString()})`;
 }
 
@@ -133,189 +197,6 @@ function updateCountdownLabels() {
         const blocked = element.dataset.blocked === "1";
         element.textContent = formatNextCheckLabel(nextCheckAt, running, queued, enabled, blocked);
     });
-}
-
-function formatTaskCount(count) {
-    return `${count} task${count === 1 ? "" : "s"}`;
-}
-
-function formatVisibleTaskCount(visibleCount, totalCount) {
-    if (visibleCount === totalCount) {
-        return formatTaskCount(totalCount);
-    }
-    return `${visibleCount} of ${formatTaskCount(totalCount)}`;
-}
-
-function hasTaskViewFilters() {
-    return Boolean(state.taskSearch.trim()) || state.taskFilter !== "all";
-}
-
-function changeKey(item) {
-    return `${item.timestamp || ""}::${item.savedPath || ""}`;
-}
-
-function setDrawerGuidance(editing) {
-    formIntroEyebrow.textContent = editing ? "Fine-tune the watch" : "Steady first pass";
-    formIntro.textContent = editing
-        ? "Adjust timing, selectors, or output details without changing more than you need."
-        : "Start with one stable page. You can tighten selectors after the first baseline is saved.";
-}
-
-function motionAllowed() {
-    return !reducedMotionQuery.matches;
-}
-
-function animateElement(element, keyframes, options) {
-    if (!motionAllowed() || !element || typeof element.animate !== "function") {
-        return;
-    }
-
-    try {
-        element.animate(keyframes, options);
-    } catch {
-        // Ignore animation failures and keep interaction logic intact.
-    }
-}
-
-function nudgeElement(element, { scale = 1.03, y = -2, duration = 240 } = {}) {
-    animateElement(
-        element,
-        [
-            { transform: "translateY(0) scale(1)" },
-            { transform: `translateY(${y}px) scale(${scale})` },
-            { transform: "translateY(0) scale(1)" },
-        ],
-        {
-            duration,
-            easing: "cubic-bezier(0.16, 1, 0.3, 1)",
-        }
-    );
-}
-
-function emphasizeButton(button) {
-    animateElement(
-        button,
-        [
-            { transform: "translateY(0) scale(1)" },
-            { transform: "translateY(-2px) scale(1.025)" },
-            { transform: "translateY(0) scale(1)" },
-        ],
-        {
-            duration: 300,
-            easing: "cubic-bezier(0.16, 1, 0.3, 1)",
-        }
-    );
-}
-
-function spawnButtonRipple(button, event) {
-    if (!motionAllowed() || !button) {
-        return;
-    }
-
-    const rect = button.getBoundingClientRect();
-    const size = Math.max(rect.width, rect.height) * 1.15;
-    const offsetX = "clientX" in event ? event.clientX - rect.left - size / 2 : rect.width / 2 - size / 2;
-    const offsetY = "clientY" in event ? event.clientY - rect.top - size / 2 : rect.height / 2 - size / 2;
-    const ripple = document.createElement("span");
-    ripple.className = "btn-ripple";
-    ripple.style.width = `${size}px`;
-    ripple.style.height = `${size}px`;
-    ripple.style.left = `${offsetX}px`;
-    ripple.style.top = `${offsetY}px`;
-    button.appendChild(ripple);
-    ripple.addEventListener(
-        "animationend",
-        () => {
-            ripple.remove();
-        },
-        { once: true }
-    );
-}
-
-function installButtonRipples() {
-    document.addEventListener("pointerdown", (event) => {
-        const target = event.target;
-        if (!(target instanceof Element)) {
-            return;
-        }
-        const button = target.closest(".btn");
-        if (!button) {
-            return;
-        }
-        spawnButtonRipple(button, event);
-    });
-}
-
-function hideToast({ immediate = false } = {}) {
-    window.clearTimeout(state.toastHideTimer);
-    window.clearTimeout(state.toastResetTimer);
-    toast.classList.remove("is-visible");
-
-    if (immediate) {
-        toast.hidden = true;
-        return;
-    }
-
-    state.toastResetTimer = window.setTimeout(() => {
-        toast.hidden = true;
-    }, 220);
-}
-
-function showToast(message, options = {}) {
-    const nextOptions = typeof options === "number" ? { duration: options } : options;
-    const {
-        title = "Console update",
-        tone = "info",
-        duration = tone === "error" ? 4200 : 2400,
-        emphasis = "normal",
-    } = nextOptions;
-
-    window.clearTimeout(state.toastHideTimer);
-    window.clearTimeout(state.toastResetTimer);
-
-    toastTitle.textContent = title;
-    toastMessage.textContent = message;
-    toastMessage.hidden = !message;
-    toast.dataset.tone = tone;
-    toast.dataset.emphasis = emphasis;
-    toast.setAttribute("role", tone === "error" ? "alert" : "status");
-    toast.style.setProperty("--toast-duration", `${duration}ms`);
-    toast.hidden = false;
-    toast.classList.remove("is-visible");
-    void toast.offsetWidth;
-    toast.classList.add("is-visible");
-
-    state.toastHideTimer = window.setTimeout(() => {
-        hideToast();
-    }, duration);
-}
-
-function showErrorToast(error, options = {}) {
-    const message = error instanceof Error ? error.message : String(error);
-    showToast(message, {
-        title: "Request failed",
-        tone: "error",
-        duration: 4000,
-        ...options,
-    });
-}
-
-function escapeHtml(input) {
-    return String(input)
-        .replaceAll("&", "&amp;")
-        .replaceAll("<", "&lt;")
-        .replaceAll(">", "&gt;")
-        .replaceAll('"', "&quot;")
-        .replaceAll("'", "&#039;");
-}
-
-function isHttpUrl(value) {
-    try {
-        const parsed = new URL(value);
-        return parsed.protocol === "http:" || parsed.protocol === "https:";
-    } catch {
-        return false;
-    }
 }
 
 function normalizeOutputsPath(value) {
@@ -357,38 +238,6 @@ function inferFocusRisk(engine) {
     return engine.launchHeadless ? "low" : "medium";
 }
 
-function getRuntimeFormValues() {
-    const rawConcurrency = maxConcurrencyInput.value.trim();
-    const parsedConcurrency = rawConcurrency ? Number(rawConcurrency) : Number.NaN;
-    return {
-        launchHeadless: headlessToggle.checked,
-        includeLegacyTasks: includeLegacyToggle.checked,
-        maxConcurrency: Number.isFinite(parsedConcurrency) && parsedConcurrency > 0 ? Math.floor(parsedConcurrency) : null,
-        userAgent: userAgentInput.value.trim(),
-        acceptLanguage: acceptLanguageInput.value.trim(),
-    };
-}
-
-function refreshRuntimeDirty() {
-    if (!state.engine) {
-        state.runtimeDirty = false;
-        return;
-    }
-
-    const formValues = getRuntimeFormValues();
-    const launchChanged =
-        state.engine.mode !== "attach" && Boolean(state.engine.launchHeadless) !== Boolean(formValues.launchHeadless);
-    const legacyChanged = Boolean(state.engine.includeLegacyTasks) !== Boolean(formValues.includeLegacyTasks);
-    const concurrencyChanged =
-        state.engine.mode !== "attach" &&
-        formValues.maxConcurrency !== null &&
-        Number(state.engine.configuredMaxConcurrency ?? state.engine.maxConcurrency ?? 1) !== formValues.maxConcurrency;
-    const userAgentChanged = String(state.engine.userAgent ?? "").trim() !== formValues.userAgent;
-    const acceptLanguageChanged = String(state.engine.acceptLanguage ?? "").trim() !== formValues.acceptLanguage;
-
-    state.runtimeDirty = launchChanged || legacyChanged || concurrencyChanged || userAgentChanged || acceptLanguageChanged;
-}
-
 function formatWaitSummary(task) {
     const waitLoad = task.waitLoad || "load";
     const parts = [waitLoad];
@@ -401,6 +250,50 @@ function formatWaitSummary(task) {
     }
 
     return parts.join(" | ");
+}
+
+function formatTaskCount(count) {
+    return `${count} task${count === 1 ? "" : "s"}`;
+}
+
+function formatVisibleTaskCount(visibleCount, totalCount) {
+    if (visibleCount === totalCount) {
+        return formatTaskCount(totalCount);
+    }
+    return `${visibleCount} of ${formatTaskCount(totalCount)}`;
+}
+
+function hostLabel(url) {
+    try {
+        return new URL(url).host;
+    } catch {
+        return url;
+    }
+}
+
+function changeKey(item) {
+    return `${item.timestamp || ""}::${item.savedPath || ""}`;
+}
+
+function basenameForPath(filePath) {
+    const normalized = String(filePath || "").replaceAll("\\", "/");
+    const segments = normalized.split("/").filter(Boolean);
+    return segments.length > 0 ? segments[segments.length - 1] : normalized || "-";
+}
+
+function totalTaskCount() {
+    if (state.engine) {
+        return Number(state.engine.taskCount || 0);
+    }
+    return state.uiTasks.length + state.legacyTasks.length;
+}
+
+function hasAnyTasks() {
+    return totalTaskCount() > 0;
+}
+
+function getStatus(taskId) {
+    return state.statuses.get(taskId) || null;
 }
 
 function filteredUiTasks() {
@@ -419,596 +312,792 @@ function filteredUiTasks() {
     });
 }
 
+function attentionStatuses() {
+    return Array.from(state.statuses.values())
+        .filter((item) => item.blocked || item.lastError)
+        .sort((a, b) => {
+            const aScore = (a.blocked ? 2 : 0) + (a.lastError ? 1 : 0);
+            const bScore = (b.blocked ? 2 : 0) + (b.lastError ? 1 : 0);
+            if (aScore !== bScore) {
+                return bScore - aScore;
+            }
+            return String(a.name).localeCompare(String(b.name));
+        });
+}
+
+function stagePreviewTasks() {
+    return state.uiTasks
+        .slice()
+        .sort((left, right) => {
+            const leftStatus = getStatus(`ui-${left.id}`);
+            const rightStatus = getStatus(`ui-${right.id}`);
+            const leftScore =
+                (leftStatus?.blocked ? 8 : 0) +
+                (leftStatus?.lastError ? 4 : 0) +
+                (leftStatus?.running ? 3 : 0) +
+                (left.enabled ? 1 : 0);
+            const rightScore =
+                (rightStatus?.blocked ? 8 : 0) +
+                (rightStatus?.lastError ? 4 : 0) +
+                (rightStatus?.running ? 3 : 0) +
+                (right.enabled ? 1 : 0);
+
+            if (leftScore !== rightScore) {
+                return rightScore - leftScore;
+            }
+            return left.name.localeCompare(right.name);
+        })
+        .slice(0, 6);
+}
+
 async function request(path, options = {}) {
-    const res = await fetch(path, {
+    const response = await fetch(path, {
         ...options,
         headers: {
             "Content-Type": "application/json",
             ...(options.headers || {}),
         },
     });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-        throw new Error(data.error || `Request failed: ${res.status}`);
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+        throw new Error(data.error || `Request failed: ${response.status}`);
     }
     return data;
 }
 
-function getStatus(taskId) {
-    return state.statuses.get(taskId) || null;
+function hideNotice() {
+    window.clearTimeout(state.noticeHideTimer);
+    refs.inlineFeedback.hidden = true;
 }
 
-function renderEngine() {
-    const engineStatus = document.querySelector("#engineStatus");
-    const modeStatus = document.querySelector("#modeStatus");
-    const controlUrl = document.querySelector("#controlUrl");
-    const taskCounts = document.querySelector("#taskCounts");
+function showNotice(message, options = {}) {
+    const {
+        title = "Update",
+        tone = "info",
+        duration = tone === "error" ? 4500 : 3200,
+    } = options;
 
-    if (!state.engine) {
-        engineStatus.textContent = "Unknown";
-        modeStatus.textContent = "-";
-        controlUrl.textContent = "-";
-        taskCounts.textContent = "-";
-        configLoadHint.hidden = true;
-        configLoadHint.textContent = "";
-        runtimeHint.textContent = "Loading runtime settings...";
-        focusRiskHint.textContent = "Focus risk: -";
-        headlessToggle.disabled = true;
-        includeLegacyToggle.disabled = true;
-        maxConcurrencyInput.disabled = true;
-        userAgentInput.disabled = true;
-        acceptLanguageInput.disabled = true;
-        applyRuntimeBtn.disabled = true;
-        return;
+    window.clearTimeout(state.noticeHideTimer);
+    refs.feedbackTitle.textContent = title;
+    refs.feedbackMessage.textContent = message;
+    refs.inlineFeedback.dataset.tone = tone;
+    refs.inlineFeedback.hidden = false;
+
+    if (duration > 0) {
+        state.noticeHideTimer = window.setTimeout(() => {
+            refs.inlineFeedback.hidden = true;
+        }, duration);
     }
+}
 
-    if (state.engine.configLoadError) {
-        configLoadHint.hidden = false;
-        configLoadHint.textContent = String(state.engine.configLoadError);
+function showErrorNotice(error, title = "Request failed") {
+    const message = error instanceof Error ? error.message : String(error);
+    showNotice(message, {
+        title,
+        tone: "error",
+        duration: 5000,
+    });
+}
+
+function currentHeaderTone() {
+    const hasAttention = attentionStatuses().length > 0;
+    if (hasAttention) {
+        return "danger";
+    }
+    if (
+        state.pending.refresh ||
+        state.pending.start ||
+        state.pending.stop ||
+        state.pending.save ||
+        state.pending.applyRuntime ||
+        state.engine?.running
+    ) {
+        return "warning";
+    }
+    return "success";
+}
+
+function setActiveTab(tab) {
+    state.activeTab = tab;
+    refs.tabButtons.forEach((button) => {
+        button.classList.toggle("is-active", button.dataset.tabButton === tab);
+    });
+    refs.panes.forEach((pane) => {
+        pane.classList.toggle("is-active", pane.dataset.pane === tab);
+    });
+}
+
+function setCollapsed(nextValue) {
+    state.collapsed = nextValue;
+    refs.commandPanel.dataset.collapsed = nextValue ? "true" : "false";
+    refs.panelSummaryBtn.setAttribute("aria-expanded", String(!nextValue));
+    refs.collapseBtn.textContent = nextValue ? "+" : "−";
+}
+
+function ensurePanelOpen() {
+    if (state.collapsed) {
+        setCollapsed(false);
+    }
+}
+
+function renderHeader() {
+    const engine = state.engine;
+    const uiCount = engine ? engine.uiTaskCount : state.uiTasks.length;
+    const legacyCount = engine ? engine.legacyTaskCount : state.legacyTasks.length;
+    const summary = engine
+        ? `${engine.running ? "RUNNING" : "STOPPED"} | ${uiCount} UI · ${legacyCount} legacy · :${engine.port}`
+        : "Loading control surface...";
+
+    refs.panelSummaryLine.textContent = summary;
+    refs.panelStateDot.dataset.tone = currentHeaderTone();
+    refs.panelProgress.classList.toggle(
+        "is-active",
+        Boolean(
+            state.pending.refresh ||
+                state.pending.start ||
+                state.pending.stop ||
+                state.pending.save ||
+                state.pending.applyRuntime ||
+                engine?.running
+        )
+    );
+
+    refs.engineBadge.textContent = engine?.running ? "Live" : "Idle";
+    refs.engineBadge.classList.toggle("metric-chip-live", Boolean(engine?.running));
+
+    refs.metricEngine.textContent = engine?.running ? "Running" : "Stopped";
+    refs.metricRisk.textContent = String(inferFocusRisk(engine)).toUpperCase();
+    refs.metricTasks.textContent = String(totalTaskCount());
+    refs.metricFreshness.textContent = state.changes[0] ? fmtDate(state.changes[0].timestamp) : "Awaiting first diff";
+}
+
+function renderComposeState() {
+    const editing = Boolean(state.editingTaskId);
+
+    refs.composeEyebrow.textContent = editing ? "Fine-tune the watch" : "Steady first pass";
+    refs.formTitle.textContent = editing ? "Edit Monitor" : "Create Monitor";
+    refs.formIntro.textContent = editing
+        ? "Adjust timing, selectors, or output details without changing more than you need."
+        : "Start with one stable page. You can tighten selectors after the first baseline is saved.";
+    refs.resetFormBtn.textContent = editing ? "Reset Draft" : "Reset";
+    refs.cancelEditBtn.hidden = !editing;
+    refs.submitTaskBtn.textContent = state.pending.save
+        ? editing
+            ? "Saving..."
+            : "Creating..."
+        : editing
+          ? "Save Monitor"
+          : "Create Monitor";
+
+    refreshUrlHint();
+    refreshFormValidity();
+}
+
+function renderOverview() {
+    const filtered = filteredUiTasks();
+
+    refs.startBtn.textContent = state.pending.start
+        ? "Starting..."
+        : state.engine?.running
+          ? "Monitoring Live"
+          : "Start Monitoring";
+    refs.stopBtn.textContent = state.pending.stop ? "Stopping..." : state.engine?.running ? "Stop" : "Stopped";
+
+    refs.startBtn.disabled =
+        state.pending.start || state.pending.stop || state.pending.applyRuntime || Boolean(state.engine?.running) || !hasAnyTasks();
+    refs.stopBtn.disabled = state.pending.stop || state.pending.start || !state.engine?.running;
+
+    refs.uiTaskCount.textContent = formatVisibleTaskCount(filtered.length, state.uiTasks.length);
+
+    if (!hasAnyTasks()) {
+        refs.overviewStatusHint.textContent = "Add a monitor first. The engine has nothing to schedule yet.";
+    } else if (state.engine?.running) {
+        refs.overviewStatusHint.textContent =
+            "Monitoring is live. Fresh diffs and task status changes will keep updating in place.";
     } else {
-        configLoadHint.hidden = true;
-        configLoadHint.textContent = "";
+        refs.overviewStatusHint.textContent =
+            "The queue is configured and ready. Start monitoring when you want the next cycle to begin.";
     }
 
-    engineStatus.textContent = state.engine.running ? "Running" : "Stopped";
-    engineStatus.className = `status-value ${state.engine.running ? "status-running" : "status-stopped"}`;
+    renderTaskList();
+    renderStageTaskPreview();
+}
 
-    if (state.engine.mode === "launch") {
-        const modeLabel = state.engine.launchHeadless ? "headless" : "visible";
-        modeStatus.textContent = `${state.engine.mode} (${modeLabel})`;
-    } else {
-        modeStatus.textContent = `${state.engine.mode} (${state.engine.browserConnected ? "connected" : "idle"})`;
-    }
-
-    controlUrl.textContent = state.engine.controlUrl;
-    taskCounts.textContent = `UI ${state.engine.uiTaskCount} / Legacy ${state.engine.legacyTaskCount} / Total ${state.engine.taskCount}`;
-
-    const focusRisk = inferFocusRisk(state.engine);
-    focusRiskHint.textContent = `Focus risk: ${String(focusRisk).toUpperCase()}`;
-    focusRiskHint.className = `inline-hint focus-risk risk-${focusRisk}`;
-
-    if (!state.runtimeDirty) {
-        headlessToggle.checked = Boolean(state.engine.launchHeadless);
-        includeLegacyToggle.checked = Boolean(state.engine.includeLegacyTasks);
-        if (state.engine.mode === "attach") {
-            maxConcurrencyInput.value = "1";
-        } else {
-            const configured = Number(state.engine.configuredMaxConcurrency ?? state.engine.maxConcurrency ?? 3);
-            maxConcurrencyInput.value = Number.isFinite(configured) && configured > 0 ? String(Math.floor(configured)) : "3";
-        }
-        userAgentInput.value = String(state.engine.userAgent ?? "");
-        acceptLanguageInput.value = String(state.engine.acceptLanguage ?? "");
-    }
-
-    headlessToggle.disabled = state.engine.mode === "attach";
-    includeLegacyToggle.disabled = false;
-    maxConcurrencyInput.disabled = state.engine.mode === "attach";
-    userAgentInput.disabled = false;
-    acceptLanguageInput.disabled = false;
+function renderRuntime() {
+    const engine = state.engine;
 
     refreshRuntimeDirty();
-    applyRuntimeBtn.disabled = !state.runtimeDirty;
+
+    if (!engine) {
+        refs.engineStatus.textContent = "Loading...";
+        refs.modeStatus.textContent = "-";
+        refs.riskStatus.textContent = "-";
+        refs.controlUrl.textContent = "-";
+        refs.taskCounts.textContent = "-";
+        refs.latestDiffStatus.textContent = "-";
+        refs.runtimeHint.textContent = "Loading runtime settings...";
+        refs.focusRiskHint.textContent = "Focus risk: -";
+        refs.configLoadHint.hidden = true;
+        refs.applyRuntimeBtn.disabled = true;
+        refs.headlessToggle.disabled = true;
+        refs.includeLegacyToggle.disabled = true;
+        refs.maxConcurrencyInput.disabled = true;
+        refs.userAgentInput.disabled = true;
+        refs.acceptLanguageInput.disabled = true;
+        refs.runtimeConfirm.hidden = true;
+        refs.runtimeDirtyBadge.textContent = "Synced";
+        refs.runtimeDirtyBadge.classList.remove("metric-chip-live");
+        return;
+    }
+
+    const focusRisk = inferFocusRisk(engine);
+    refs.engineStatus.textContent = engine.running ? "Running" : "Stopped";
+    refs.modeStatus.textContent =
+        engine.mode === "attach"
+            ? `${engine.mode} (${engine.browserConnected ? "connected" : "idle"})`
+            : `${engine.mode} (${engine.launchHeadless ? "headless" : "visible"})`;
+    refs.riskStatus.textContent = String(focusRisk).toUpperCase();
+    refs.controlUrl.textContent = engine.controlUrl || "-";
+    refs.taskCounts.textContent = `UI ${engine.uiTaskCount} / Legacy ${engine.legacyTaskCount} / Total ${engine.taskCount}`;
+    refs.latestDiffStatus.textContent = state.changes[0] ? fmtDate(state.changes[0].timestamp) : "No diff yet";
+    refs.focusRiskHint.textContent = `Focus risk: ${String(focusRisk).toUpperCase()}`;
+
+    if (engine.configLoadError) {
+        refs.configLoadHint.hidden = false;
+        refs.configLoadHint.textContent = String(engine.configLoadError);
+    } else {
+        refs.configLoadHint.hidden = true;
+        refs.configLoadHint.textContent = "";
+    }
+
+    refs.headlessToggle.disabled = engine.mode === "attach";
+    refs.includeLegacyToggle.disabled = false;
+    refs.maxConcurrencyInput.disabled = engine.mode === "attach";
+    refs.userAgentInput.disabled = false;
+    refs.acceptLanguageInput.disabled = false;
 
     if (state.runtimeDirty) {
-        runtimeHint.textContent = "Pending runtime changes. Click Apply Runtime to take effect.";
-        runtimeHint.classList.remove("invalid");
-    } else if (state.engine.mode === "attach") {
-        const configured = Number(state.engine.configuredMaxConcurrency ?? 1);
-        const configuredLabel = Number.isFinite(configured) && configured > 0 ? Math.floor(configured) : 1;
-        runtimeHint.textContent =
-            `Attach mode uses your existing Chrome and may steal focus. ` +
-            `Max concurrency is forced to 1 (configured: ${configuredLabel}).`;
-        runtimeHint.classList.add("invalid");
+        refs.runtimeHint.textContent = "Pending runtime changes. Apply them when you are ready.";
+    } else if (engine.mode === "attach") {
+        refs.runtimeHint.textContent =
+            "Attach mode uses your existing Chrome session and forces max concurrency to 1.";
+    } else if (engine.launchHeadless) {
+        refs.runtimeHint.textContent =
+            `Headless mode is active. Legacy tasks are ${engine.includeLegacyTasks ? "enabled" : "disabled"}. ` +
+            `Max concurrency: ${engine.maxConcurrency}.`;
     } else {
-        runtimeHint.classList.remove("invalid");
-        const legacyHint = state.engine.includeLegacyTasks ? "Legacy tasks enabled." : "Legacy tasks disabled.";
-        const concurrency = Number(state.engine.maxConcurrency ?? 3);
-        const concurrencyLabel = Number.isFinite(concurrency) && concurrency > 0 ? Math.floor(concurrency) : 3;
-        if (state.engine.launchHeadless) {
-            runtimeHint.textContent = `Headless mode is active and minimizes foreground interruption. ${legacyHint} Max concurrency: ${concurrencyLabel}.`;
-        } else {
-            runtimeHint.textContent = `Visible mode is active for debugging and can steal focus. ${legacyHint} Max concurrency: ${concurrencyLabel}.`;
-        }
+        refs.runtimeHint.textContent =
+            `Visible mode is active for debugging and can steal focus. Legacy tasks are ${engine.includeLegacyTasks ? "enabled" : "disabled"}. ` +
+            `Max concurrency: ${engine.maxConcurrency}.`;
     }
 
-    applyRuntimeBtn.classList.toggle("btn-ready", state.runtimeDirty);
-    runtimeHint.classList.toggle("inline-hint-ready", state.runtimeDirty);
-
-    if (state.runtimeDirty && !state.lastRuntimeDirty) {
-        emphasizeButton(applyRuntimeBtn);
-        nudgeElement(runtimeHint, { scale: 1.01, y: -1, duration: 220 });
-    }
-    state.lastRuntimeDirty = state.runtimeDirty;
-}
-
-function handleEmptyStateAction(event) {
-    const action = event.currentTarget.dataset.emptyAction;
-    if (action === "create-task") {
-        openTaskDrawer({ editing: false });
-        return;
-    }
-    if (action === "clear-task-filters") {
-        state.taskSearch = "";
-        state.taskFilter = "all";
-        taskSearchInput.value = "";
-        taskFilterSelect.value = "all";
-        renderUiTasks();
-        taskSearchInput.focus();
-    }
-}
-
-function renderUiTasks() {
-    const tbody = document.querySelector("#uiTaskTable tbody");
-    tbody.innerHTML = "";
-
-    const tasks = filteredUiTasks();
-    uiTaskCount.textContent = formatVisibleTaskCount(tasks.length, state.uiTasks.length);
-
-    if (tasks.length === 0) {
-        const emptyRow = document.createElement("tr");
-        emptyRow.className = "table-empty-row";
-
-        if (state.uiTasks.length === 0) {
-            emptyRow.innerHTML = `
-        <td colspan="11">
-          <div class="empty-state empty-state-table">
-            <p class="empty-state-kicker">First monitor</p>
-            <h3>No tasks yet</h3>
-            <p class="empty-state-copy">Start with one page you care about, save it, and let the first run establish a baseline.</p>
-            <div class="empty-state-actions">
-              <button type="button" class="btn btn-secondary" data-empty-action="create-task">Create your first task</button>
-            </div>
-          </div>
-        </td>
-      `;
-        } else {
-            const guidance = hasTaskViewFilters()
-                ? "Try a broader search or switch back to all tasks."
-                : "Adjust filters to bring your saved tasks back into view.";
-            emptyRow.innerHTML = `
-        <td colspan="11">
-          <div class="empty-state empty-state-table empty-state-muted">
-            <p class="empty-state-kicker">Filtered view</p>
-            <h3>No tasks match this view</h3>
-            <p class="empty-state-copy">${escapeHtml(guidance)}</p>
-            <div class="empty-state-actions">
-              <button type="button" class="btn btn-secondary" data-empty-action="clear-task-filters">Clear search and filters</button>
-            </div>
-          </div>
-        </td>
-      `;
-        }
-
-        tbody.appendChild(emptyRow);
-        tbody.querySelectorAll("[data-empty-action]").forEach((element) => {
-            element.addEventListener("click", handleEmptyStateAction);
-        });
-        return;
-    }
-
-    for (const task of tasks) {
-        const row = document.createElement("tr");
-        row.className = `task-row${task.enabled ? "" : " task-row-disabled"}`;
-        const status = getStatus(`ui-${task.id}`);
-        const outputHref = outputsHrefForPath(task.outputDir, { isDir: true });
-        const outputCell = outputHref
-            ? `<a href="${outputHref}" target="_blank" rel="noreferrer">${escapeHtml(task.outputDir)}</a>`
-            : escapeHtml(task.outputDir);
-        const unblockButton = status?.blocked
-            ? `<button class="btn btn-mini" data-action="unblock" data-id="${escapeHtml(task.id)}">Unblock</button>`
-            : "";
-
-        row.innerHTML = `
-      <td><input type="checkbox" data-action="toggle" data-id="${escapeHtml(task.id)}" ${task.enabled ? "checked" : ""}></td>
-      <td>${escapeHtml(task.name)}</td>
-      <td><a href="${escapeHtml(task.url)}" target="_blank" rel="noreferrer">${escapeHtml(task.url)}</a></td>
-      <td>${task.intervalSec}s</td>
-      <td>${escapeHtml(formatWaitSummary(task))}</td>
-      <td><span class="next-check" data-next-check="${escapeHtml(status?.nextCheckAt ?? "")}" data-running="${status?.running ? "1" : "0"}" data-queued="${status?.queued ? "1" : "0"}" data-enabled="${task.enabled ? "1" : "0"}" data-blocked="${status?.blocked ? "1" : "0"}">-</span></td>
-      <td>${outputCell}</td>
-      <td>${fmtDate(status?.lastCheckAt ?? null)}</td>
-      <td>${fmtDate(status?.lastChangeAt ?? null)}</td>
-      <td>${status?.lastError ? escapeHtml(status.lastError) : "-"}</td>
-      <td>
-        ${unblockButton}
-        <button class="btn btn-mini" data-action="edit" data-id="${escapeHtml(task.id)}">Edit</button>
-        <button class="btn btn-mini" data-action="delete" data-id="${escapeHtml(task.id)}">Delete</button>
-      </td>
-    `;
-        tbody.appendChild(row);
-    }
-
-    tbody.querySelectorAll("button[data-action]").forEach((element) => {
-        element.addEventListener("click", handleTableAction);
-    });
-    tbody.querySelectorAll("input[data-action]").forEach((element) => {
-        element.addEventListener("change", handleTableAction);
-    });
-
-    updateCountdownLabels();
+    refs.applyRuntimeBtn.textContent = state.pending.applyRuntime ? "Applying..." : "Apply Runtime";
+    refs.applyRuntimeBtn.disabled = !state.runtimeDirty || state.pending.applyRuntime;
+    refs.runtimeConfirm.hidden = !state.confirmRuntimeApply;
+    refs.runtimeDirtyBadge.textContent = state.runtimeDirty ? "Pending" : "Synced";
+    refs.runtimeDirtyBadge.classList.toggle("metric-chip-live", state.runtimeDirty);
 }
 
 function renderLegacyTasks() {
-    const tbody = document.querySelector("#legacyTable tbody");
-    tbody.innerHTML = "";
+    refs.legacyCount.textContent = String(state.legacyTasks.length);
 
-    for (const item of state.legacyTasks) {
-        const row = document.createElement("tr");
-        const outputHref = outputsHrefForPath(item.outputDir, { isDir: true });
-        const outputCell = outputHref
-            ? `<a href="${outputHref}" target="_blank" rel="noreferrer">${escapeHtml(item.outputDir)}</a>`
-            : escapeHtml(item.outputDir);
-
-        row.innerHTML = `
-	      <td>${escapeHtml(item.name)}</td>
-	      <td><a href="${escapeHtml(item.url)}" target="_blank" rel="noreferrer">${escapeHtml(item.url)}</a></td>
-	      <td>${item.intervalSec}s</td>
-	      <td><span class="next-check" data-next-check="${escapeHtml(item.nextCheckAt ?? "")}" data-running="${item.running ? "1" : "0"}" data-queued="${item.queued ? "1" : "0"}" data-enabled="${item.enabled ? "1" : "0"}" data-blocked="${item.blocked ? "1" : "0"}">-</span></td>
-	      <td>${outputCell}</td>
-	      <td>${fmtDate(item.lastCheckAt)}</td>
-	      <td>${item.lastError ? escapeHtml(item.lastError) : "-"}</td>
-	    `;
-        tbody.appendChild(row);
+    if (state.legacyTasks.length === 0) {
+        refs.legacyList.innerHTML = `
+      <div class="empty-card">
+        <h3>No legacy tasks attached</h3>
+        <p>Enable legacy tasks in runtime settings if you want to load the read-only TASKS_FILE queue.</p>
+      </div>
+    `;
+        return;
     }
+
+    refs.legacyList.innerHTML = state.legacyTasks
+        .map((item) => {
+            const outputHref = outputsHrefForPath(item.outputDir, { isDir: true });
+            const outputMarkup = outputHref
+                ? `<a class="task-action-link" href="${outputHref}" target="_blank" rel="noreferrer">Open output</a>`
+                : "";
+
+            return `
+        <div class="legacy-card">
+          <div class="task-head">
+            <div class="task-title">
+              <p>Legacy task</p>
+              <h3>${escapeHtml(item.name)}</h3>
+              <a class="task-url" href="${escapeHtml(item.url)}" target="_blank" rel="noreferrer">${escapeHtml(hostLabel(item.url))}</a>
+            </div>
+            <div class="task-summary">
+              ${item.blocked ? '<span class="status-pill danger">Blocked</span>' : ""}
+              ${item.running ? '<span class="status-pill warning">Running</span>' : ""}
+              ${!item.blocked && !item.running ? '<span class="status-pill success">Ready</span>' : ""}
+            </div>
+          </div>
+          <div class="legacy-grid">
+            ${metaCell("Interval", `${item.intervalSec}s`)}
+            ${nextCheckMetaCell(item)}
+            ${metaCell("Last Check", fmtDate(item.lastCheckAt))}
+            ${metaCell("Last Error", item.lastError ? escapeHtml(item.lastError) : "-")}
+          </div>
+          <div class="legacy-actions">
+            ${outputMarkup}
+          </div>
+        </div>
+      `;
+        })
+        .join("");
 
     updateCountdownLabels();
 }
 
-function renderChanges() {
-    const changeList = document.querySelector("#changeList");
-    changeList.innerHTML = "";
+function renderAttention() {
+    const items = attentionStatuses();
 
-    if (state.changes.length === 0) {
-        const empty = document.createElement("li");
-        empty.className = "change-item change-item-empty";
-        empty.innerHTML = `
-      <div class="empty-state empty-state-compact">
-        <p class="empty-state-kicker">Awaiting signal</p>
-        <h3>No saved changes yet</h3>
-        <p class="empty-state-copy">The first run establishes a baseline. Saved diff reports will appear here when a page actually shifts.</p>
+    if (items.length === 0) {
+        refs.attentionList.innerHTML = `
+      <div class="empty-card">
+        <h3>No tasks need review</h3>
+        <p>Blocked tasks and recent task errors will surface here so they stay visible without taking over the whole panel.</p>
       </div>
     `;
-        changeList.appendChild(empty);
         return;
     }
 
-    for (const item of state.changes) {
-        const li = document.createElement("li");
-        const isNew = state.newChangeKeys.has(changeKey(item));
-        li.className = `change-item${isNew ? " change-item-new" : ""}`;
+    refs.attentionList.innerHTML = items
+        .map((item) => {
+            const rawTaskId = item.source === "ui" ? item.id.replace(/^ui-/, "") : null;
+            const unblockDisabled = state.pending.unblockTaskIds.has(rawTaskId);
 
-        const href = outputsHrefForPath(item.savedPath, { isDir: false });
-        const savedLabel = href
-            ? `<a href="${href}" target="_blank" rel="noreferrer">${escapeHtml(item.savedPath)}</a>`
-            : escapeHtml(item.savedPath);
-        const freshness = isNew ? '<span class="change-freshness">new</span>' : "";
+            return `
+        <div class="attention-card">
+          <div class="task-head">
+            <div class="task-title">
+              <p>${escapeHtml(item.source.toUpperCase())} attention</p>
+              <h3>${escapeHtml(item.name)}</h3>
+              <p>${escapeHtml(hostLabel(item.url))}</p>
+            </div>
+            <div class="task-summary">
+              ${item.blocked ? '<span class="status-pill danger">Blocked</span>' : ""}
+              ${item.lastError ? '<span class="status-pill warning">Error</span>' : ""}
+            </div>
+          </div>
+          ${item.blockedReason ? `<p>${escapeHtml(item.blockedReason)}</p>` : ""}
+          ${item.lastError ? `<p>${escapeHtml(item.lastError)}</p>` : ""}
+          <div class="button-row">
+            ${rawTaskId ? `<button class="btn btn-ghost" type="button" data-action="edit-task" data-id="${escapeHtml(rawTaskId)}">Edit</button>` : ""}
+            ${
+                rawTaskId && item.blocked
+                    ? `<button class="btn btn-danger" type="button" data-action="unblock-task" data-id="${escapeHtml(rawTaskId)}" ${unblockDisabled ? "disabled" : ""}>${unblockDisabled ? "Unblocking..." : "Unblock"}</button>`
+                    : ""
+            }
+          </div>
+        </div>
+      `;
+        })
+        .join("");
+}
 
-        li.innerHTML = `
-      <div class="change-head">
-        <div><span class="badge">${escapeHtml(item.source)}</span>${escapeHtml(item.taskName)}</div>
-        ${freshness}
+function renderChanges() {
+    refs.changeCount.textContent = String(state.changes.length);
+
+    if (state.changes.length === 0) {
+        const emptyMarkup = `
+      <div class="empty-card">
+        <h3>No saved changes yet</h3>
+        <p>The first run establishes a baseline. Saved diff reports will appear here when a page actually changes.</p>
       </div>
-      <div class="meta">${fmtDate(item.timestamp)}</div>
-      <div>${savedLabel}</div>
     `;
-        changeList.appendChild(li);
+        refs.stageChangePreview.innerHTML = emptyMarkup;
+        refs.changeList.innerHTML = emptyMarkup;
+        return;
     }
+
+    const renderItem = (item, { compact = false } = {}) => {
+        const href = outputsHrefForPath(item.savedPath, { isDir: false });
+        const isNew = state.newChangeKeys.has(changeKey(item));
+        const sourceLabel = escapeHtml(item.source.toUpperCase());
+        const taskName = escapeHtml(item.taskName);
+        const fileLabel = escapeHtml(compact ? basenameForPath(item.savedPath) : item.savedPath);
+        const titleLabel = compact ? fileLabel : taskName;
+        const subLabel = compact ? taskName : sourceLabel;
+        const fileMarkup = href
+            ? `<a class="task-url" href="${href}" target="_blank" rel="noreferrer">${fileLabel}</a>`
+            : `<span class="task-url">${fileLabel}</span>`;
+
+        return `
+      <div class="signal-item${isNew ? " is-new" : ""}">
+        <div class="signal-head">
+          <div class="signal-title">
+            <p>${subLabel}</p>
+            <h3>${titleLabel}</h3>
+          </div>
+          ${isNew ? '<span class="status-pill success">New</span>' : ""}
+        </div>
+        <div class="signal-meta">${fmtDate(item.timestamp)}</div>
+        ${fileMarkup}
+      </div>
+    `;
+    };
+
+    refs.stageChangePreview.innerHTML = state.changes.slice(0, 5).map((item) => renderItem(item, { compact: true })).join("");
+    refs.changeList.innerHTML = state.changes.slice(0, 20).map((item) => renderItem(item)).join("");
+}
+
+function renderStageTaskPreview() {
+    const tasks = stagePreviewTasks();
+
+    if (tasks.length === 0) {
+        refs.stageTaskPreview.innerHTML = `
+      <div class="empty-card">
+        <h3>No monitors yet</h3>
+        <p>Create the first watch target, then start the engine when you want the baseline cycle to begin.</p>
+        <div class="button-row">
+          <button class="btn btn-primary" type="button" data-action="create-task">Create first monitor</button>
+        </div>
+      </div>
+    `;
+        return;
+    }
+
+    refs.stageTaskPreview.innerHTML = tasks
+        .map((task) => {
+            const status = getStatus(`ui-${task.id}`);
+            const tonePill = status?.blocked
+                ? '<span class="status-pill danger">Blocked</span>'
+                : status?.running
+                  ? '<span class="status-pill warning">Running</span>'
+                  : task.enabled
+                    ? '<span class="status-pill success">Ready</span>'
+                    : '<span class="status-pill muted">Disabled</span>';
+
+            return `
+        <div class="preview-item">
+          <div class="preview-head">
+            <div class="preview-title">
+              <p>${escapeHtml(hostLabel(task.url))}</p>
+              <h3>${escapeHtml(task.name)}</h3>
+            </div>
+            ${tonePill}
+          </div>
+          <div class="signal-meta">
+            <span class="next-check" data-next-check="${escapeHtml(status?.nextCheckAt ?? "")}" data-running="${status?.running ? "1" : "0"}" data-queued="${status?.queued ? "1" : "0"}" data-enabled="${task.enabled ? "1" : "0"}" data-blocked="${status?.blocked ? "1" : "0"}">-</span>
+          </div>
+          <div class="button-row">
+            <button class="btn btn-ghost" type="button" data-action="edit-task" data-id="${escapeHtml(task.id)}">Edit</button>
+          </div>
+        </div>
+      `;
+        })
+        .join("");
+
+    updateCountdownLabels();
+}
+
+function renderTaskList() {
+    const tasks = filteredUiTasks();
+
+    if (tasks.length === 0 && state.uiTasks.length === 0) {
+        refs.taskList.innerHTML = `
+      <div class="empty-card">
+        <h3>No tasks yet</h3>
+        <p>Start with one stable page, save it, and let the first run establish a baseline.</p>
+        <div class="button-row">
+          <button class="btn btn-primary" type="button" data-action="create-task">Create your first task</button>
+        </div>
+      </div>
+    `;
+        return;
+    }
+
+    if (tasks.length === 0) {
+        refs.taskList.innerHTML = `
+      <div class="empty-card">
+        <h3>No tasks match this view</h3>
+        <p>Try a broader search or switch the filter back to all tasks.</p>
+        <div class="button-row">
+          <button class="btn btn-ghost" type="button" data-action="clear-filters">Clear filters</button>
+        </div>
+      </div>
+    `;
+        return;
+    }
+
+    refs.taskList.innerHTML = tasks.map((task) => taskCardHtml(task)).join("");
+    updateCountdownLabels();
+}
+
+function metaCell(label, valueHtml) {
+    return `
+    <div class="meta-cell">
+      <span>${escapeHtml(label)}</span>
+      <strong>${valueHtml}</strong>
+    </div>
+  `;
+}
+
+function nextCheckMetaCell(item) {
+    return metaCell(
+        "Next Check",
+        `<span class="next-check" data-next-check="${escapeHtml(item.nextCheckAt ?? "")}" data-running="${item.running ? "1" : "0"}" data-queued="${item.queued ? "1" : "0"}" data-enabled="${item.enabled ? "1" : "0"}" data-blocked="${item.blocked ? "1" : "0"}">-</span>`
+    );
+}
+
+function taskCardHtml(task) {
+    const status = getStatus(`ui-${task.id}`);
+    const outputHref = outputsHrefForPath(task.outputDir, { isDir: true });
+    const toggleDisabled = state.pending.toggleTaskIds.has(task.id);
+    const unblockDisabled = state.pending.unblockTaskIds.has(task.id);
+    const deleteDisabled = state.pending.deleteTaskIds.has(task.id);
+    const confirmDelete = state.confirmDeleteTaskId === task.id;
+    const classes = [
+        "task-card",
+        task.enabled ? "" : "is-disabled",
+        status?.blocked || status?.lastError ? "is-attention" : "",
+        status?.running ? "is-running" : "",
+    ]
+        .filter(Boolean)
+        .join(" ");
+    const lastErrorMarkup = status?.lastError
+        ? `<div class="task-alert danger">${escapeHtml(status.lastError)}</div>`
+        : "";
+    const blockedMarkup = status?.blockedReason
+        ? `<div class="task-alert warning">${escapeHtml(status.blockedReason)}</div>`
+        : "";
+
+    return `
+    <div class="${classes}">
+      <div class="task-head">
+        <div class="task-title">
+          <p>${escapeHtml(hostLabel(task.url))}</p>
+          <h3>${escapeHtml(task.name)}</h3>
+          <a class="task-url" href="${escapeHtml(task.url)}" target="_blank" rel="noreferrer">${escapeHtml(task.url)}</a>
+        </div>
+        <label class="toggle-pill">
+          <input type="checkbox" data-action="toggle-task" data-id="${escapeHtml(task.id)}" ${task.enabled ? "checked" : ""} ${toggleDisabled ? "disabled" : ""} />
+          <span>${toggleDisabled ? "Updating" : task.enabled ? "Enabled" : "Disabled"}</span>
+        </label>
+      </div>
+
+      <div class="task-summary">
+        ${status?.running ? '<span class="status-pill warning">Running</span>' : ""}
+        ${status?.queued ? '<span class="status-pill">Queued</span>' : ""}
+        ${status?.blocked ? '<span class="status-pill danger">Blocked</span>' : ""}
+        ${!status?.running && !status?.queued && !status?.blocked && task.enabled ? '<span class="status-pill success">Ready</span>' : ""}
+        ${!task.enabled ? '<span class="status-pill muted">Disabled</span>' : ""}
+      </div>
+
+      <div class="task-meta-grid">
+        ${metaCell("Interval", `${task.intervalSec}s`)}
+        ${metaCell("Wait", escapeHtml(formatWaitSummary(task)))}
+        ${nextCheckMetaCell({
+            nextCheckAt: status?.nextCheckAt ?? "",
+            running: Boolean(status?.running),
+            queued: Boolean(status?.queued),
+            enabled: Boolean(task.enabled),
+            blocked: Boolean(status?.blocked),
+        })}
+        ${metaCell("Output", outputHref ? `<a href="${outputHref}" target="_blank" rel="noreferrer">${escapeHtml(task.outputDir)}</a>` : escapeHtml(task.outputDir))}
+        ${metaCell("Last Check", escapeHtml(fmtDate(status?.lastCheckAt ?? null)))}
+        ${metaCell("Last Change", escapeHtml(fmtDate(status?.lastChangeAt ?? null)))}
+      </div>
+
+      ${blockedMarkup}
+      ${lastErrorMarkup}
+
+      <div class="task-actions">
+        <a class="task-action-link" href="${escapeHtml(task.url)}" target="_blank" rel="noreferrer">Open page</a>
+        ${outputHref ? `<a class="task-action-link" href="${outputHref}" target="_blank" rel="noreferrer">Open output</a>` : ""}
+        <button class="btn btn-ghost" type="button" data-action="edit-task" data-id="${escapeHtml(task.id)}">Edit</button>
+        ${
+            status?.blocked
+                ? `<button class="btn btn-danger" type="button" data-action="unblock-task" data-id="${escapeHtml(task.id)}" ${unblockDisabled ? "disabled" : ""}>${unblockDisabled ? "Unblocking..." : "Unblock"}</button>`
+                : ""
+        }
+        <button class="btn btn-danger" type="button" data-action="delete-task" data-id="${escapeHtml(task.id)}" ${deleteDisabled ? "disabled" : ""}>${deleteDisabled ? "Deleting..." : "Delete"}</button>
+      </div>
+
+      ${
+          confirmDelete
+              ? `
+        <div class="confirm-card">
+          <p class="confirm-copy">Delete this monitor from the active queue? Existing output files stay on disk.</p>
+          <div class="button-row">
+            <button class="btn btn-danger" type="button" data-action="confirm-delete-task" data-id="${escapeHtml(task.id)}" ${deleteDisabled ? "disabled" : ""}>${deleteDisabled ? "Deleting..." : "Delete Monitor"}</button>
+            <button class="btn btn-ghost" type="button" data-action="cancel-delete-task" data-id="${escapeHtml(task.id)}" ${deleteDisabled ? "disabled" : ""}>Cancel</button>
+          </div>
+        </div>
+      `
+              : ""
+      }
+    </div>
+  `;
+}
+
+function syncRuntimeInputsFromEngine(force = false) {
+    if (!state.engine) {
+        return;
+    }
+    if (state.runtimeDirty && !force) {
+        return;
+    }
+
+    refs.headlessToggle.checked = Boolean(state.engine.launchHeadless);
+    refs.includeLegacyToggle.checked = Boolean(state.engine.includeLegacyTasks);
+
+    if (state.engine.mode === "attach") {
+        refs.maxConcurrencyInput.value = "1";
+    } else {
+        const concurrency = Number(state.engine.configuredMaxConcurrency ?? state.engine.maxConcurrency ?? 3);
+        refs.maxConcurrencyInput.value = Number.isFinite(concurrency) && concurrency > 0 ? String(Math.floor(concurrency)) : "3";
+    }
+
+    refs.userAgentInput.value = String(state.engine.userAgent ?? "");
+    refs.acceptLanguageInput.value = String(state.engine.acceptLanguage ?? "");
+}
+
+function getRuntimeFormValues() {
+    const rawConcurrency = refs.maxConcurrencyInput.value.trim();
+    const parsedConcurrency = rawConcurrency ? Number(rawConcurrency) : Number.NaN;
+    return {
+        launchHeadless: refs.headlessToggle.checked,
+        includeLegacyTasks: refs.includeLegacyToggle.checked,
+        maxConcurrency: Number.isFinite(parsedConcurrency) && parsedConcurrency > 0 ? Math.floor(parsedConcurrency) : null,
+        userAgent: refs.userAgentInput.value.trim(),
+        acceptLanguage: refs.acceptLanguageInput.value.trim(),
+    };
+}
+
+function refreshRuntimeDirty() {
+    if (!state.engine) {
+        state.runtimeDirty = false;
+        return;
+    }
+
+    const values = getRuntimeFormValues();
+    const launchChanged =
+        state.engine.mode !== "attach" && Boolean(state.engine.launchHeadless) !== Boolean(values.launchHeadless);
+    const legacyChanged = Boolean(state.engine.includeLegacyTasks) !== Boolean(values.includeLegacyTasks);
+    const concurrencyChanged =
+        state.engine.mode !== "attach" &&
+        values.maxConcurrency !== null &&
+        Number(state.engine.configuredMaxConcurrency ?? state.engine.maxConcurrency ?? 1) !== values.maxConcurrency;
+    const userAgentChanged = String(state.engine.userAgent ?? "").trim() !== values.userAgent;
+    const acceptLanguageChanged = String(state.engine.acceptLanguage ?? "").trim() !== values.acceptLanguage;
+
+    state.runtimeDirty = launchChanged || legacyChanged || concurrencyChanged || userAgentChanged || acceptLanguageChanged;
 }
 
 function refreshUrlHint() {
-    const urlValue = urlInput.value.trim();
+    const urlValue = refs.urlInput.value.trim();
     if (!urlValue) {
-        urlInput.classList.remove("input-invalid");
-        urlInput.classList.remove("input-valid");
-        urlHint.textContent = "Paste the page you want to watch. Use an http:// or https:// address.";
-        urlHint.classList.remove("invalid");
-        urlHint.classList.remove("is-positive");
+        refs.urlInput.classList.remove("input-invalid", "input-valid");
+        refs.urlHint.textContent = "Paste the page you want to watch. Use an http:// or https:// address.";
+        refs.urlHint.classList.remove("micro-copy-danger");
         return;
     }
 
     if (isHttpUrl(urlValue)) {
-        urlInput.classList.remove("input-invalid");
-        urlInput.classList.add("input-valid");
-        urlHint.textContent = "Looks good. The task name and output folder can follow from this.";
-        urlHint.classList.remove("invalid");
-        urlHint.classList.add("is-positive");
+        refs.urlInput.classList.remove("input-invalid");
+        refs.urlInput.classList.add("input-valid");
+        refs.urlHint.textContent = "Looks good. The task name and output folder can follow from this.";
+        refs.urlHint.classList.remove("micro-copy-danger");
         return;
     }
 
-    urlInput.classList.add("input-invalid");
-    urlInput.classList.remove("input-valid");
-    urlHint.textContent = "Invalid URL. Use an http:// or https:// address.";
-    urlHint.classList.add("invalid");
-    urlHint.classList.remove("is-positive");
+    refs.urlInput.classList.add("input-invalid");
+    refs.urlInput.classList.remove("input-valid");
+    refs.urlHint.textContent = "Invalid URL. Use an http:// or https:// address.";
+    refs.urlHint.classList.add("micro-copy-danger");
 }
 
 function maybeAutoFillNameFromUrl() {
-    if (nameInput.value.trim()) {
+    if (refs.nameInput.value.trim()) {
         return;
     }
-    const urlValue = urlInput.value.trim();
+    const urlValue = refs.urlInput.value.trim();
     if (!isHttpUrl(urlValue)) {
         return;
     }
+
     try {
         const parsed = new URL(urlValue);
-        nameInput.value = parsed.hostname.replace(/^www\./, "");
+        refs.nameInput.value = parsed.hostname.replace(/^www\./, "");
     } catch {
-        // Ignore parser errors; the live hint already covers invalid URLs.
+        // Ignore parse failures; the inline hint already shows the invalid state.
     }
 }
 
 function updateSuggestedOutputDir() {
-    if (state.outputDirTouched && !state.editingTaskId) {
+    if (state.outputDirTouched) {
         return;
     }
-    const slug = slugify(nameInput.value);
-    outputDirInput.value = slug ? `outputs/${slug}` : "";
+    const slug = slugify(refs.nameInput.value);
+    refs.outputDirInput.value = slug ? `outputs/${slug}` : "";
 }
 
-function syncDrawerState() {
-    document.body.classList.toggle("drawer-open", state.isTaskDrawerOpen);
-    openTaskDrawerBtn.setAttribute("aria-expanded", state.isTaskDrawerOpen ? "true" : "false");
-    taskDrawer.setAttribute("aria-hidden", state.isTaskDrawerOpen ? "false" : "true");
-    taskDrawerBackdrop.hidden = false;
-    taskDrawerBackdrop.setAttribute("aria-hidden", state.isTaskDrawerOpen ? "false" : "true");
-}
+function refreshFormValidity() {
+    const hasName = Boolean(refs.nameInput.value.trim());
+    const hasUrl = isHttpUrl(refs.urlInput.value.trim());
+    const interval = Number(refs.intervalInput.value);
+    const waitTimeoutValue = refs.waitTimeoutInput.value.trim();
+    const waitTimeout = waitTimeoutValue ? Number(waitTimeoutValue) : 0;
+    const validWaitTimeout = Number.isFinite(waitTimeout) && waitTimeout >= 0;
+    const validInterval = Number.isFinite(interval) && interval > 0;
 
-function openTaskDrawer({ editing = false } = {}) {
-    if (!editing) {
-        resetForm();
-    }
-    state.isTaskDrawerOpen = true;
-    syncDrawerState();
-    window.requestAnimationFrame(() => {
-        nameInput.focus();
-    });
-}
-
-function closeTaskDrawer({ resetForm: shouldReset = false } = {}) {
-    const activeInsideDrawer = document.activeElement && taskDrawer.contains(document.activeElement);
-    state.isTaskDrawerOpen = false;
-    syncDrawerState();
-    if (shouldReset) {
-        resetForm();
-    }
-    if (activeInsideDrawer) {
-        openTaskDrawerBtn.focus();
-    }
+    refs.submitTaskBtn.disabled = !hasName || !hasUrl || !validInterval || !validWaitTimeout || state.pending.save;
 }
 
 function resetForm() {
     state.editingTaskId = null;
     state.outputDirTouched = false;
-    formTitle.textContent = "Create Task";
-    submitTaskBtn.textContent = "Create Task";
-    cancelEditBtn.hidden = true;
-    setDrawerGuidance(false);
-    form.reset();
-    intervalInput.value = "60";
-    waitLoadInput.value = "load";
-    waitSelectorInput.value = "";
-    waitTimeoutInput.value = "0";
-    compareSelectorInput.value = "";
-    requiredKeywordInput.value = "";
-    ignoreSelectorsInput.value = "";
-    ignoreTextRegexInput.value = "";
-    enabledInput.checked = true;
-    refreshUrlHint();
+    refs.taskForm.reset();
+    refs.intervalInput.value = "60";
+    refs.waitLoadInput.value = "load";
+    refs.waitTimeoutInput.value = "0";
+    refs.enabledInput.checked = true;
+    renderComposeState();
 }
 
 function fillForm(task) {
     state.editingTaskId = task.id;
     state.outputDirTouched = true;
-    formTitle.textContent = "Edit Task";
-    submitTaskBtn.textContent = "Save Task";
-    cancelEditBtn.hidden = false;
-    setDrawerGuidance(true);
-    nameInput.value = task.name;
-    urlInput.value = task.url;
-    intervalInput.value = `${task.intervalSec}`;
-    waitLoadInput.value = task.waitLoad || "load";
-    waitSelectorInput.value = task.waitSelector || "";
-    waitTimeoutInput.value = task.waitTimeoutSec ? `${task.waitTimeoutSec}` : "0";
-    compareSelectorInput.value = task.compareSelector || "";
-    requiredKeywordInput.value = task.requiredKeyword || "";
-    ignoreSelectorsInput.value = Array.isArray(task.ignoreSelectors) ? task.ignoreSelectors.join("\n") : "";
-    ignoreTextRegexInput.value = task.ignoreTextRegex || "";
-    outputDirInput.value = task.outputDir;
-    enabledInput.checked = task.enabled;
-    refreshUrlHint();
+
+    refs.nameInput.value = task.name;
+    refs.urlInput.value = task.url;
+    refs.intervalInput.value = `${task.intervalSec}`;
+    refs.waitLoadInput.value = task.waitLoad || "load";
+    refs.waitSelectorInput.value = task.waitSelector || "";
+    refs.waitTimeoutInput.value = task.waitTimeoutSec ? `${task.waitTimeoutSec}` : "0";
+    refs.compareSelectorInput.value = task.compareSelector || "";
+    refs.requiredKeywordInput.value = task.requiredKeyword || "";
+    refs.ignoreSelectorsInput.value = Array.isArray(task.ignoreSelectors) ? task.ignoreSelectors.join("\n") : "";
+    refs.ignoreTextRegexInput.value = task.ignoreTextRegex || "";
+    refs.outputDirInput.value = task.outputDir || "";
+    refs.enabledInput.checked = Boolean(task.enabled);
+
+    renderComposeState();
 }
 
-function announceNewChanges(newChanges) {
-    if (newChanges.length === 0) {
-        return;
-    }
-
-    if (!state.hasCelebratedFirstChange) {
-        state.hasCelebratedFirstChange = true;
-        showToast("A saved diff just arrived. Open Recent Changes to inspect the report.", {
-            title: "First signal captured",
-            tone: "success",
-            emphasis: "strong",
-            duration: 3600,
-        });
-        return;
-    }
-
-    if (newChanges.length === 1) {
-        showToast("A fresh diff report is ready in Recent Changes.", {
-            title: "New change saved",
-            tone: "success",
-        });
-        return;
-    }
-
-    showToast(`${newChanges.length} fresh diff reports are ready in Recent Changes.`, {
-        title: "New changes saved",
-        tone: "success",
-    });
-}
-
-async function applyRuntimeChanges() {
-    if (!state.engine) {
-        return;
-    }
-
-    const nextHeadless = headlessToggle.checked;
-    const nextIncludeLegacy = includeLegacyToggle.checked;
-    const nextMaxConcurrencyRaw = maxConcurrencyInput.value.trim();
-    const nextMaxConcurrency = nextMaxConcurrencyRaw ? Number(nextMaxConcurrencyRaw) : Number.NaN;
-    const nextUserAgent = userAgentInput.value.trim();
-    const nextAcceptLanguage = acceptLanguageInput.value.trim();
-    const launchChanged =
-        state.engine.mode !== "attach" && Boolean(state.engine.launchHeadless) !== Boolean(nextHeadless);
-    const legacyChanged = Boolean(state.engine.includeLegacyTasks) !== Boolean(nextIncludeLegacy);
-    const maxConcurrencyChanged =
-        state.engine.mode !== "attach" &&
-        Number.isFinite(nextMaxConcurrency) &&
-        nextMaxConcurrency > 0 &&
-        Number(state.engine.configuredMaxConcurrency ?? state.engine.maxConcurrency ?? 1) !== Math.floor(nextMaxConcurrency);
-    const userAgentChanged = String(state.engine.userAgent ?? "").trim() !== nextUserAgent;
-    const acceptLanguageChanged = String(state.engine.acceptLanguage ?? "").trim() !== nextAcceptLanguage;
-
-    if (!launchChanged && !legacyChanged && !maxConcurrencyChanged && !userAgentChanged && !acceptLanguageChanged) {
-        state.runtimeDirty = false;
-        renderEngine();
-        showToast("There are no runtime changes to apply right now.", {
-            title: "No runtime changes",
-            tone: "info",
-        });
-        return;
-    }
-
-    if (state.engine.running) {
-        const confirmed = window.confirm("Applying runtime will briefly restart monitoring. Continue?");
-        if (!confirmed) {
-            return;
-        }
-    }
-
-    const payload = {
-        includeLegacyTasks: nextIncludeLegacy,
-    };
-    if (state.engine.mode !== "attach") {
-        payload.launchHeadless = nextHeadless;
-        if (!Number.isFinite(nextMaxConcurrency) || nextMaxConcurrency <= 0) {
-            showToast("Max Concurrency must be a positive number.", {
-                title: "Invalid runtime value",
-                tone: "error",
-            });
-            return;
-        }
-        if (maxConcurrencyChanged) {
-            payload.maxConcurrency = Math.floor(nextMaxConcurrency);
-        }
-    }
-    if (userAgentChanged) {
-        payload.userAgent = nextUserAgent;
-    }
-    if (acceptLanguageChanged) {
-        payload.acceptLanguage = nextAcceptLanguage;
-    }
-
-    const result = await request("/api/runtime", {
-        method: "PUT",
-        body: JSON.stringify(payload),
-    });
-
-    state.runtimeDirty = false;
-    if (result?.state) {
-        state.engine = result.state;
-    }
-    showToast("The updated runtime settings are active for the next checks.", {
-        title: "Runtime updated",
-        tone: "success",
-    });
-    await refresh();
-}
-
-async function handleTableAction(event) {
-    const target = event.currentTarget;
-    const action = target.dataset.action;
-    const id = target.dataset.id;
-    if (!action || !id) {
-        return;
-    }
-
-    const task = state.uiTasks.find((item) => item.id === id);
-    if (!task) {
-        return;
-    }
-
-    try {
-        if (action === "edit") {
-            fillForm(task);
-            openTaskDrawer({ editing: true });
-            return;
-        }
-        if (action === "delete") {
-            if (!window.confirm(`Delete task "${task.name}"?`)) {
-                return;
-            }
-            await request(`/api/tasks/${encodeURIComponent(id)}`, { method: "DELETE" });
-            if (state.editingTaskId === id) {
-                resetForm();
-            }
-            showToast("This monitor has been removed from the active list.", {
-                title: "Task deleted",
-                tone: "info",
-            });
-            await refresh();
-            return;
-        }
-        if (action === "unblock") {
-            await request(`/api/tasks/${encodeURIComponent(id)}/unblock`, { method: "POST" });
-            showToast("The monitor can retry on its next scheduled pass.", {
-                title: "Task unblocked",
-                tone: "success",
-            });
-            await refresh();
-            return;
-        }
-        if (action === "toggle") {
-            await request(`/api/tasks/${encodeURIComponent(id)}`, {
-                method: "PUT",
-                body: JSON.stringify({ enabled: target.checked }),
-            });
-            await refresh();
-        }
-    } catch (error) {
-        if (state.editingTaskId && String(error.message || error).includes("not found")) {
-            resetForm();
-        }
-        showErrorToast(error);
-    }
+function renderAll() {
+    renderHeader();
+    setActiveTab(state.activeTab);
+    renderComposeState();
+    renderOverview();
+    renderRuntime();
+    renderLegacyTasks();
+    renderAttention();
+    renderChanges();
+    updateCountdownLabels();
 }
 
 async function refresh() {
+    if (state.pending.refresh) {
+        return;
+    }
+
+    state.pending.refresh = true;
+    renderHeader();
+
     try {
-        const previousTaskCount = state.uiTasks.length;
-        const previousEngineRunning = Boolean(state.engine?.running);
         const previousChangeKeys = new Set(state.changes.map((item) => changeKey(item)));
         const wasHydrated = state.hasHydrated;
 
@@ -1018,94 +1107,237 @@ async function refresh() {
             request("/api/changes?limit=30"),
         ]);
 
-        const nextUiTasks = taskData.uiTasks || [];
-        const nextChanges = changeData.changes || [];
-        const newChanges = wasHydrated
-            ? nextChanges.filter((item) => !previousChangeKeys.has(changeKey(item)))
-            : [];
-
         state.engine = engine;
-        state.uiTasks = nextUiTasks;
+        state.uiTasks = taskData.uiTasks || [];
         state.legacyTasks = taskData.legacyTasks || [];
         state.statuses = new Map((taskData.statuses || []).map((item) => [item.id, item]));
-        state.changes = nextChanges;
-        state.newChangeKeys = new Set(newChanges.map((item) => changeKey(item)));
+        state.changes = changeData.changes || [];
 
+        const newChanges = wasHydrated
+            ? state.changes.filter((item) => !previousChangeKeys.has(changeKey(item)))
+            : [];
+
+        state.newChangeKeys = new Set(newChanges.map((item) => changeKey(item)));
         if (!state.hasHydrated) {
             state.hasHydrated = true;
-            state.hasCelebratedFirstTask = nextUiTasks.length > 0;
         }
 
+        syncRuntimeInputsFromEngine();
         if (state.editingTaskId && !state.uiTasks.some((task) => task.id === state.editingTaskId)) {
             resetForm();
-            showToast("The edited task no longer exists, so the drawer has returned to create mode.", {
-                title: "Edit session reset",
+            showNotice("The task being edited no longer exists, so the draft was reset.", {
+                title: "Draft reset",
                 tone: "info",
-                duration: 3000,
             });
         }
 
-        renderEngine();
-        renderUiTasks();
-        renderLegacyTasks();
-        renderChanges();
-        updateCountdownLabels();
+        renderAll();
 
-        if (wasHydrated && previousTaskCount !== nextUiTasks.length) {
-            nudgeElement(uiTaskCount, { scale: 1.05, y: -2, duration: 260 });
-        }
-
-        if (wasHydrated && previousEngineRunning !== Boolean(engine.running)) {
-            const engineStatus = document.querySelector("#engineStatus");
-            nudgeElement(engineStatus, { scale: 1.04, y: -1, duration: 280 });
-        }
-
-        if (newChanges.length > 0) {
-            announceNewChanges(newChanges);
+        if (wasHydrated && newChanges.length > 0) {
+            showNotice(
+                newChanges.length === 1
+                    ? "A fresh diff report is ready in the signal feed."
+                    : `${newChanges.length} fresh diff reports are ready in the signal feed.`,
+                {
+                    title: newChanges.length === 1 ? "New change saved" : "New changes saved",
+                    tone: "success",
+                }
+            );
         }
     } catch (error) {
-        showErrorToast(error);
+        showErrorNotice(error);
+    } finally {
+        state.pending.refresh = false;
+        renderHeader();
+        updateCountdownLabels();
     }
 }
 
-async function onFormSubmit(event) {
-    event.preventDefault();
+async function startMonitoring() {
+    if (!hasAnyTasks()) {
+        showNotice("Create a task first. The engine will not start with an empty queue.", {
+            title: "Nothing to run",
+            tone: "error",
+        });
+        openCompose();
+        return;
+    }
 
-    const waitTimeoutRaw = waitTimeoutInput.value.trim();
+    state.pending.start = true;
+    renderOverview();
+    renderHeader();
+
+    try {
+        await request("/api/engine/start", { method: "POST" });
+        showNotice("Checks are running. Fresh diffs will appear here as they land.", {
+            title: "Monitoring live",
+            tone: "success",
+        });
+        await refresh();
+    } catch (error) {
+        showErrorNotice(error);
+    } finally {
+        state.pending.start = false;
+        renderOverview();
+        renderHeader();
+    }
+}
+
+async function stopMonitoring() {
+    state.pending.stop = true;
+    renderOverview();
+    renderHeader();
+
+    try {
+        await request("/api/engine/stop", { method: "POST" });
+        showNotice("The queue is preserved. Start monitoring again when you want the next pass to begin.", {
+            title: "Monitoring paused",
+            tone: "info",
+        });
+        await refresh();
+    } catch (error) {
+        showErrorNotice(error);
+    } finally {
+        state.pending.stop = false;
+        renderOverview();
+        renderHeader();
+    }
+}
+
+async function applyRuntimeChanges() {
+    if (!state.engine) {
+        return;
+    }
+
+    refreshRuntimeDirty();
+    if (!state.runtimeDirty) {
+        showNotice("There are no runtime changes to apply right now.", {
+            title: "No runtime changes",
+            tone: "info",
+        });
+        renderRuntime();
+        return;
+    }
+
+    const values = getRuntimeFormValues();
+    if (state.engine.mode !== "attach" && (!Number.isFinite(values.maxConcurrency) || values.maxConcurrency <= 0)) {
+        showNotice("Max concurrency must be a positive number.", {
+            title: "Invalid runtime value",
+            tone: "error",
+        });
+        return;
+    }
+
+    if (state.engine.running && !state.confirmRuntimeApply) {
+        state.confirmRuntimeApply = true;
+        renderRuntime();
+        return;
+    }
+
+    const payload = {
+        includeLegacyTasks: values.includeLegacyTasks,
+    };
+
+    if (state.engine.mode !== "attach") {
+        payload.launchHeadless = values.launchHeadless;
+        payload.maxConcurrency = values.maxConcurrency;
+    }
+
+    if (String(state.engine.userAgent ?? "").trim() !== values.userAgent) {
+        payload.userAgent = values.userAgent;
+    }
+    if (String(state.engine.acceptLanguage ?? "").trim() !== values.acceptLanguage) {
+        payload.acceptLanguage = values.acceptLanguage;
+    }
+
+    state.pending.applyRuntime = true;
+    state.confirmRuntimeApply = false;
+    renderRuntime();
+    renderHeader();
+
+    try {
+        const result = await request("/api/runtime", {
+            method: "PUT",
+            body: JSON.stringify(payload),
+        });
+
+        if (result?.state) {
+            state.engine = result.state;
+        }
+
+        syncRuntimeInputsFromEngine(true);
+        refreshRuntimeDirty();
+        showNotice("The updated runtime settings are active for the next checks.", {
+            title: "Runtime updated",
+            tone: "success",
+        });
+        await refresh();
+    } catch (error) {
+        showErrorNotice(error);
+    } finally {
+        state.pending.applyRuntime = false;
+        state.confirmRuntimeApply = false;
+        renderRuntime();
+        renderHeader();
+    }
+}
+
+function buildTaskPayload() {
+    const waitTimeoutRaw = refs.waitTimeoutInput.value.trim();
     const waitTimeoutSec = waitTimeoutRaw ? Number(waitTimeoutRaw) : 0;
+
+    return {
+        waitTimeoutSec,
+        payload: {
+            name: refs.nameInput.value.trim(),
+            url: refs.urlInput.value.trim(),
+            intervalSec: Number(refs.intervalInput.value),
+            waitLoad: refs.waitLoadInput.value,
+            waitSelector: refs.waitSelectorInput.value.trim(),
+            waitTimeoutSec,
+            compareSelector: refs.compareSelectorInput.value.trim(),
+            requiredKeyword: refs.requiredKeywordInput.value.trim(),
+            ignoreSelectors: refs.ignoreSelectorsInput.value,
+            ignoreTextRegex: refs.ignoreTextRegexInput.value.trim(),
+            outputDir: refs.outputDirInput.value.trim(),
+            enabled: refs.enabledInput.checked,
+        },
+    };
+}
+
+async function handleTaskSubmit(event) {
+    event.preventDefault();
+    refreshFormValidity();
+    if (refs.submitTaskBtn.disabled) {
+        showNotice("Name, URL, and interval are required before this monitor can be saved.", {
+            title: "Incomplete task",
+            tone: "error",
+        });
+        return;
+    }
+
+    const { waitTimeoutSec, payload } = buildTaskPayload();
     if (!Number.isFinite(waitTimeoutSec) || waitTimeoutSec < 0) {
-        showToast("Extra Wait must be a number greater than or equal to 0.", {
+        showNotice("Extra wait must be a number greater than or equal to 0.", {
             title: "Invalid task value",
             tone: "error",
         });
         return;
     }
 
-    const isEditing = Boolean(state.editingTaskId);
-    const shouldCelebrateFirstTask = !isEditing && !state.hasCelebratedFirstTask && state.uiTasks.length === 0;
+    const editing = Boolean(state.editingTaskId);
 
-    const payload = {
-        name: nameInput.value.trim(),
-        url: urlInput.value.trim(),
-        intervalSec: Number(intervalInput.value),
-        waitLoad: waitLoadInput.value,
-        waitSelector: waitSelectorInput.value.trim(),
-        waitTimeoutSec,
-        compareSelector: compareSelectorInput.value.trim(),
-        requiredKeyword: requiredKeywordInput.value.trim(),
-        ignoreSelectors: ignoreSelectorsInput.value,
-        ignoreTextRegex: ignoreTextRegexInput.value.trim(),
-        outputDir: outputDirInput.value.trim(),
-        enabled: enabledInput.checked,
-    };
+    state.pending.save = true;
+    renderComposeState();
+    renderHeader();
 
     try {
-        if (isEditing) {
+        if (editing) {
             await request(`/api/tasks/${encodeURIComponent(state.editingTaskId)}`, {
                 method: "PUT",
                 body: JSON.stringify(payload),
             });
-            showToast("The updated settings will apply on the next check.", {
+            showNotice("The updated monitor settings will apply on the next check.", {
                 title: "Task updated",
                 tone: "success",
             });
@@ -1114,151 +1346,303 @@ async function onFormSubmit(event) {
                 method: "POST",
                 body: JSON.stringify(payload),
             });
-
-            if (shouldCelebrateFirstTask) {
-                state.hasCelebratedFirstTask = true;
-                showToast("The first run will capture a baseline and start the watch.", {
-                    title: "First monitor ready",
-                    tone: "success",
-                    emphasis: "strong",
-                    duration: 3400,
-                });
-            } else {
-                showToast("This monitor will join the next scheduled cycle.", {
-                    title: "Task created",
-                    tone: "success",
-                });
-            }
+            showNotice("This monitor is now part of the active queue.", {
+                title: "Task created",
+                tone: "success",
+            });
         }
 
         resetForm();
+        setActiveTab("overview");
         await refresh();
-        closeTaskDrawer({ resetForm: false });
     } catch (error) {
-        if (state.editingTaskId && String(error.message || error).includes("not found")) {
-            resetForm();
-        }
-        showErrorToast(error);
+        showErrorNotice(error);
+    } finally {
+        state.pending.save = false;
+        renderComposeState();
+        renderHeader();
     }
 }
 
-nameInput.addEventListener("input", () => {
-    updateSuggestedOutputDir();
-});
-
-outputDirInput.addEventListener("input", () => {
-    state.outputDirTouched = Boolean(outputDirInput.value.trim());
-});
-
-urlInput.addEventListener("input", () => {
-    refreshUrlHint();
-    maybeAutoFillNameFromUrl();
-    updateSuggestedOutputDir();
-});
-
-taskSearchInput.addEventListener("input", () => {
-    state.taskSearch = taskSearchInput.value;
-    renderUiTasks();
-});
-
-taskFilterSelect.addEventListener("change", () => {
-    state.taskFilter = taskFilterSelect.value;
-    renderUiTasks();
-});
-
-headlessToggle.addEventListener("change", () => {
-    refreshRuntimeDirty();
-    renderEngine();
-});
-
-includeLegacyToggle.addEventListener("change", () => {
-    refreshRuntimeDirty();
-    renderEngine();
-});
-
-maxConcurrencyInput.addEventListener("input", () => {
-    refreshRuntimeDirty();
-    renderEngine();
-});
-
-userAgentInput.addEventListener("input", () => {
-    refreshRuntimeDirty();
-    renderEngine();
-});
-
-acceptLanguageInput.addEventListener("input", () => {
-    refreshRuntimeDirty();
-    renderEngine();
-});
-
-applyRuntimeBtn.addEventListener("click", async () => {
-    try {
-        await applyRuntimeChanges();
-    } catch (error) {
-        showErrorToast(error);
+function openCompose(task = null) {
+    ensurePanelOpen();
+    setActiveTab("compose");
+    if (task) {
+        fillForm(task);
+    } else {
+        resetForm();
     }
-});
+    refs.nameInput.focus();
+}
 
-form.addEventListener("submit", onFormSubmit);
+function clearTaskFilters() {
+    state.taskSearch = "";
+    state.taskFilter = "all";
+    refs.taskSearchInput.value = "";
+    refs.taskFilterSelect.value = "all";
+    renderOverview();
+}
 
-openTaskDrawerBtn.addEventListener("click", () => {
-    openTaskDrawer({ editing: false });
-});
+async function deleteTask(taskId) {
+    state.pending.deleteTaskIds.add(taskId);
+    renderTaskList();
 
-closeTaskDrawerBtn.addEventListener("click", () => {
-    closeTaskDrawer({ resetForm: true });
-});
-
-taskDrawerBackdrop.addEventListener("click", () => {
-    closeTaskDrawer({ resetForm: false });
-});
-
-cancelEditBtn.addEventListener("click", () => {
-    resetForm();
-    closeTaskDrawer({ resetForm: false });
-});
-
-document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && state.isTaskDrawerOpen) {
-        closeTaskDrawer({ resetForm: false });
-    }
-});
-
-startBtn.addEventListener("click", async () => {
     try {
-        await request("/api/engine/start", { method: "POST" });
-        showToast("Checks are running. New diffs will appear here as they arrive.", {
-            title: "Monitoring live",
-            tone: "success",
-        });
-        await refresh();
-    } catch (error) {
-        showErrorToast(error);
-    }
-});
-
-stopBtn.addEventListener("click", async () => {
-    try {
-        await request("/api/engine/stop", { method: "POST" });
-        showToast("The current setup stays in place until you start monitoring again.", {
-            title: "Monitoring paused",
+        await request(`/api/tasks/${encodeURIComponent(taskId)}`, { method: "DELETE" });
+        if (state.editingTaskId === taskId) {
+            resetForm();
+        }
+        state.confirmDeleteTaskId = null;
+        showNotice("This monitor has been removed from the queue.", {
+            title: "Task deleted",
             tone: "info",
         });
         await refresh();
     } catch (error) {
-        showErrorToast(error);
+        showErrorNotice(error);
+    } finally {
+        state.pending.deleteTaskIds.delete(taskId);
+        renderTaskList();
     }
+}
+
+async function unblockTask(taskId) {
+    state.pending.unblockTaskIds.add(taskId);
+    renderTaskList();
+    renderAttention();
+
+    try {
+        await request(`/api/tasks/${encodeURIComponent(taskId)}/unblock`, { method: "POST" });
+        showNotice("The monitor can retry on its next scheduled pass.", {
+            title: "Task unblocked",
+            tone: "success",
+        });
+        await refresh();
+    } catch (error) {
+        showErrorNotice(error);
+    } finally {
+        state.pending.unblockTaskIds.delete(taskId);
+        renderTaskList();
+        renderAttention();
+    }
+}
+
+async function toggleTask(taskId, enabled) {
+    state.pending.toggleTaskIds.add(taskId);
+    renderTaskList();
+
+    try {
+        await request(`/api/tasks/${encodeURIComponent(taskId)}`, {
+            method: "PUT",
+            body: JSON.stringify({ enabled }),
+        });
+        await refresh();
+    } catch (error) {
+        showErrorNotice(error);
+        await refresh();
+    } finally {
+        state.pending.toggleTaskIds.delete(taskId);
+        renderTaskList();
+    }
+}
+
+function findTaskById(taskId) {
+    return state.uiTasks.find((item) => item.id === taskId) || null;
+}
+
+function handleActionClick(event) {
+    const actionElement = event.target.closest("[data-action]");
+    if (!actionElement) {
+        return;
+    }
+
+    const action = actionElement.dataset.action;
+    const taskId = actionElement.dataset.id;
+
+    if (action === "create-task") {
+        openCompose();
+        return;
+    }
+
+    if (action === "clear-filters") {
+        clearTaskFilters();
+        return;
+    }
+
+    if (action === "edit-task" && taskId) {
+        const task = findTaskById(taskId);
+        if (!task) {
+            showNotice("That task is no longer available.", {
+                title: "Task missing",
+                tone: "error",
+            });
+            return;
+        }
+        openCompose(task);
+        return;
+    }
+
+    if (action === "delete-task" && taskId) {
+        state.confirmDeleteTaskId = taskId;
+        renderTaskList();
+        return;
+    }
+
+    if (action === "cancel-delete-task") {
+        state.confirmDeleteTaskId = null;
+        renderTaskList();
+        return;
+    }
+
+    if (action === "confirm-delete-task" && taskId) {
+        void deleteTask(taskId);
+        return;
+    }
+
+    if (action === "unblock-task" && taskId) {
+        void unblockTask(taskId);
+    }
+}
+
+function handleActionChange(event) {
+    const actionElement = event.target.closest("[data-action]");
+    if (!actionElement) {
+        return;
+    }
+
+    const action = actionElement.dataset.action;
+    const taskId = actionElement.dataset.id;
+
+    if (action === "toggle-task" && taskId) {
+        void toggleTask(taskId, actionElement.checked);
+    }
+}
+
+refs.feedbackCloseBtn.addEventListener("click", hideNotice);
+
+refs.panelSummaryBtn.addEventListener("click", () => {
+    setCollapsed(!state.collapsed);
 });
 
+refs.collapseBtn.addEventListener("click", (event) => {
+    event.stopPropagation();
+    setCollapsed(!state.collapsed);
+});
+
+refs.tabButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+        ensurePanelOpen();
+        setActiveTab(button.dataset.tabButton);
+    });
+});
+
+refs.composeFromStageBtn.addEventListener("click", () => {
+    openCompose();
+});
+
+refs.newTaskBtn.addEventListener("click", () => {
+    openCompose();
+});
+
+refs.startBtn.addEventListener("click", () => {
+    void startMonitoring();
+});
+
+refs.stopBtn.addEventListener("click", () => {
+    void stopMonitoring();
+});
+
+refs.resetFormBtn.addEventListener("click", () => {
+    resetForm();
+});
+
+refs.cancelEditBtn.addEventListener("click", () => {
+    resetForm();
+});
+
+refs.taskForm.addEventListener("submit", (event) => {
+    void handleTaskSubmit(event);
+});
+
+refs.taskSearchInput.addEventListener("input", () => {
+    state.taskSearch = refs.taskSearchInput.value;
+    renderOverview();
+});
+
+refs.taskFilterSelect.addEventListener("change", () => {
+    state.taskFilter = refs.taskFilterSelect.value;
+    renderOverview();
+});
+
+refs.nameInput.addEventListener("input", () => {
+    updateSuggestedOutputDir();
+    refreshFormValidity();
+});
+
+refs.urlInput.addEventListener("input", () => {
+    refreshUrlHint();
+    maybeAutoFillNameFromUrl();
+    updateSuggestedOutputDir();
+    refreshFormValidity();
+});
+
+refs.intervalInput.addEventListener("input", refreshFormValidity);
+refs.waitTimeoutInput.addEventListener("input", refreshFormValidity);
+
+refs.outputDirInput.addEventListener("input", () => {
+    state.outputDirTouched = Boolean(refs.outputDirInput.value.trim());
+});
+
+refs.headlessToggle.addEventListener("change", () => {
+    refreshRuntimeDirty();
+    renderRuntime();
+});
+
+refs.includeLegacyToggle.addEventListener("change", () => {
+    refreshRuntimeDirty();
+    renderRuntime();
+});
+
+refs.maxConcurrencyInput.addEventListener("input", () => {
+    refreshRuntimeDirty();
+    renderRuntime();
+});
+
+refs.userAgentInput.addEventListener("input", () => {
+    refreshRuntimeDirty();
+    renderRuntime();
+});
+
+refs.acceptLanguageInput.addEventListener("input", () => {
+    refreshRuntimeDirty();
+    renderRuntime();
+});
+
+refs.applyRuntimeBtn.addEventListener("click", () => {
+    void applyRuntimeChanges();
+});
+
+refs.runtimeConfirmBtn.addEventListener("click", () => {
+    void applyRuntimeChanges();
+});
+
+refs.runtimeCancelBtn.addEventListener("click", () => {
+    state.confirmRuntimeApply = false;
+    renderRuntime();
+});
+
+document.addEventListener("click", handleActionClick);
+document.addEventListener("change", handleActionChange);
+
 resetForm();
-syncDrawerState();
-installButtonRipples();
+syncRuntimeInputsFromEngine();
+renderAll();
 void refresh();
 
-setInterval(() => {
+window.setInterval(() => {
     void refresh();
 }, 3000);
 
-setInterval(() => {
+window.setInterval(() => {
     updateCountdownLabels();
 }, 1000);
